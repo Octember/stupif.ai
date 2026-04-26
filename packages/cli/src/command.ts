@@ -1,36 +1,36 @@
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.js";
-import type { Command } from "./types.js";
+import type { Command, ModelId } from "./types.js";
+
+const DEFAULT_RECENT_COMMIT_COUNT = 5;
+type InputMode =
+  | Readonly<{ kind: "stdin" }>
+  | Readonly<{ kind: "commit"; commit: string }>
+  | Readonly<{ kind: "commits"; count: number }>;
 
 export function parseCommand(argv: readonly string[]): Command {
-  if (argv.length === 0) {
-    return { kind: "commits", count: 5, checkIds: null, json: false, model: DEFAULT_MODEL_ID };
-  }
-
   if (argv.length === 1 && isHelp(argv[0])) {
     return { kind: "help" };
   }
 
-  let kind: "stdin" | "commit" | "commits" | null = null;
-  let commit = "";
-  let count = 0;
+  let inputMode: InputMode = { kind: "commits", count: DEFAULT_RECENT_COMMIT_COUNT };
+  let explicitInputMode = false;
   let checkIds: readonly string[] | null = null;
   let json = false;
-  let model = DEFAULT_MODEL_ID;
+  let model: ModelId = DEFAULT_MODEL_ID;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--stdin") kind = "stdin";
+    if (arg === "--stdin") setInputMode({ kind: "stdin" });
     else if (arg === "--json") json = true;
     else if (arg === "--commit") {
       const value = argv[++index];
       if (!value || !isSafeCommitArg(value)) throw new Error("Invalid commit.");
-      kind = "commit";
-      commit = value;
+      setInputMode({ kind: "commit", commit: value });
     } else if (arg === "--commits") {
       const value = argv[++index];
-      count = Number(value);
+      const count = Number(value);
       if (!Number.isInteger(count) || count < 1) throw new Error("--commits requires a positive integer.");
-      kind = "commits";
+      setInputMode({ kind: "commits", count });
     } else if (arg === "--checks") {
       const value = argv[++index];
       if (!value || value.startsWith("-")) throw new Error("--checks requires a comma-separated list.");
@@ -38,15 +38,18 @@ export function parseCommand(argv: readonly string[]): Command {
       if (checkIds.length === 0) throw new Error("--checks requires at least one check id.");
     } else if (arg === "--model") {
       const value = argv[++index];
-      if (!value || !(value in MODEL_REGISTRY)) throw new Error(`--model must be one of: ${Object.keys(MODEL_REGISTRY).join(", ")}`);
-      model = value as keyof typeof MODEL_REGISTRY;
+      if (!value || !isModelId(value)) throw new Error(`--model must be one of: ${Object.keys(MODEL_REGISTRY).join(", ")}`);
+      model = value;
     } else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (kind === "stdin") return { kind, checkIds, json, model };
-  if (kind === "commit") return { kind, commit, checkIds, json, model };
-  if (kind === "commits") return { kind, count, checkIds, json, model };
-  throw new Error("Usage: stupify --commit <commit>");
+  return { ...inputMode, checkIds, json, model };
+
+  function setInputMode(next: InputMode): void {
+    if (explicitInputMode) throw new Error("Choose only one input mode: --stdin, --commit, or --commits.");
+    inputMode = next;
+    explicitInputMode = true;
+  }
 }
 
 function isSafeCommitArg(value: string): boolean {
@@ -55,4 +58,8 @@ function isSafeCommitArg(value: string): boolean {
 
 function isHelp(value: string): boolean {
   return value === "--help" || value === "-h";
+}
+
+function isModelId(value: string): value is ModelId {
+  return value in MODEL_REGISTRY;
 }

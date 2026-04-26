@@ -1,9 +1,8 @@
 import { VERSION } from "./constants.js";
-import { toShareCardPayload } from "./share-card.js";
-import type { Command, FindingsResult } from "./types.js";
+import type { AnalyzeCommand, FindingsResult } from "./types.js";
 
-export function renderFindings(result: FindingsResult, command: Command): string {
-  if (command.kind === "help" || command.json) return JSON.stringify(toShareCardPayload(result), null, 2);
+export function renderFindings(result: FindingsResult, command: AnalyzeCommand): string {
+  if (command.json) return JSON.stringify(result, null, 2);
 
   if (result.findings.length === 0) {
     return `🧙 stupify 🪄
@@ -36,6 +35,7 @@ Options:
 
 Default:
   stupify is equivalent to stupify --commits 5.
+  Options such as --json and --checks keep that default input mode unless --stdin, --commit, or --commits is provided.
 
 Not included:
   Baselines, sharing, server calls, Ollama, BYO model setup, or a search/judge pipeline.

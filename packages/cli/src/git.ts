@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { sourceId, type SourceId } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
 export type CommitProjection = Readonly<{
-  id: string;
+  id: SourceId;
   label: string;
   base: string;
   target: string;
@@ -20,7 +21,7 @@ export async function projectionForCommit(commit: string): Promise<CommitProject
   ]);
 
   return {
-    id: shortTarget,
+    id: sourceId(shortTarget),
     label: firstLine(message) || shortTarget,
     base,
     target,
@@ -42,7 +43,7 @@ export async function projectionForRecentCommits(count: number): Promise<CommitP
   ]);
 
   return {
-    id: `range:${shortBase}..${shortTarget}`,
+    id: sourceId(`range:${shortBase}..${shortTarget}`),
     label: `${commits.length} recent commits`,
     base,
     target,

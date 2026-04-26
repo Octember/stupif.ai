@@ -1,11 +1,11 @@
 import { stdin as input } from "node:process";
-import type { ChangeArtifact } from "./types.js";
+import { sourceId, type ChangeArtifact } from "./types.js";
 
 export async function artifactFromStdinDiff(): Promise<ChangeArtifact> {
   const raw = await readStdin();
   if (!raw.trim()) throw new Error("No diff received on stdin.");
   return {
-    id: "stdin",
+    id: sourceId("stdin"),
     label: "stdin",
     text: `DIFF:
 ${labelHunks(raw)}`,

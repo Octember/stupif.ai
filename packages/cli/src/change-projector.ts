@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { CommitProjection } from "./git.js";
+import type { SourceId } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
 export type ProjectedChange = Readonly<{
   tempDir: string;
-  id: string;
+  id: SourceId;
   label: string;
   base: string;
   target: string;

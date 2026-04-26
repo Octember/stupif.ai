@@ -1,3 +1,18 @@
+declare const brand: unique symbol;
+
+type Brand<Value, Name extends string> = Value & { readonly [brand]: Name };
+
+export type SourceId = Brand<string, "SourceId">;
+export type CheckId = Brand<string, "CheckId">;
+
+export function sourceId(value: string): SourceId {
+  return value as SourceId;
+}
+
+export function checkId(value: string): CheckId {
+  return value as CheckId;
+}
+
 export type Command =
   | Readonly<{ kind: "help" }>
   | Readonly<{ kind: "stdin"; checkIds: readonly string[] | null; json: boolean; model: ModelId }>
@@ -7,7 +22,7 @@ export type Command =
 export type AnalyzeCommand = Exclude<Command, Readonly<{ kind: "help" }>>;
 
 export type ChangeArtifact = Readonly<{
-  id: string;
+  id: SourceId;
   label: string;
   text: string;
 }>;
@@ -18,7 +33,7 @@ export type ModelInput = Readonly<{
 }>;
 
 export type StupifyCheck = Readonly<{
-  id: string;
+  id: CheckId;
   name: string;
   question: string;
   matchWhen: readonly string[];
@@ -29,9 +44,20 @@ export type StupifyCheck = Readonly<{
   }>;
 }>;
 
-export type Finding = Readonly<{
+export type FindingCandidate = Readonly<{
   sourceId: string;
   checkId: string;
+  why: string;
+  proof: string;
+}>;
+
+export type FindingsCandidate = Readonly<{
+  findings: readonly FindingCandidate[];
+}>;
+
+export type Finding = Readonly<{
+  sourceId: SourceId;
+  checkId: CheckId;
   why: string;
   proof: string;
 }>;
