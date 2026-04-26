@@ -1,7 +1,7 @@
-import type { DiffPack, StupifyCheck } from "./types.js";
+import type { ModelBatch, StupifyCheck } from "./types.js";
 
 export function findingsPrompt(
-  pack: DiffPack,
+  batch: ModelBatch,
   checks: readonly StupifyCheck[],
   options?: Readonly<{ secondPass?: boolean }>,
 ): string {
@@ -32,26 +32,34 @@ Return JSON only:
 
 ${checks.map(formatCheck).join("\n\n")}
 
-PACK ${pack.id}:
-${pack.units.map(formatUnit).join("\n\n")}`;
+BATCH ${batch.id}:
+${batch.units.map(formatUnit).join("\n\n")}`;
 }
 
 function formatCheck(check: StupifyCheck): string {
-  const signals = check.signals.map((signal) => `- ${signal}`).join("\n");
-  const examples = check.examples
+  const matches = check.matchWhen.map((signal) => `- ${signal}`).join("\n");
+  const noMatches = check.doNotMatchWhen.map((signal) => `- ${signal}`).join("\n");
+  const matchExamples = check.examples?.match
+    ?.map((example) => `- ${example}`)
+    .join("\n") ?? "";
+  const noMatchExamples = check.examples?.noMatch
     ?.map((example) => `- ${example}`)
     .join("\n") ?? "";
 
   return `# ${check.name}
 ID: ${check.id}
 Q: ${check.question}
-Signals:
-${signals}
-Examples:
-${examples}`;
+Match when:
+${matches}
+Do not match when:
+${noMatches}
+Match examples:
+${matchExamples}
+No-match examples:
+${noMatchExamples}`;
 }
 
-function formatUnit(unit: DiffPack["units"][number]): string {
+function formatUnit(unit: ModelBatch["units"][number]): string {
   return `SOURCE ${unit.id}
 TITLE ${unit.label}
 ${unit.text}`;

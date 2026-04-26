@@ -7,7 +7,7 @@ export function meta({}: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "A local-only CLI that packs diffs with a check registry and asks a local model for findings.",
+        "A local-only CLI that sends diffs with a check registry to a local model for findings.",
     },
   ];
 }
@@ -16,7 +16,7 @@ const COMMAND = "npx @stupify/cli --commit HEAD";
 
 const V0_STEPS = [
   ["1", "Load commit diffs or stdin diff."],
-  ["2", "Pack small diffs together and split oversized diffs."],
+  ["2", "Group recent diffs into simple model calls."],
   ["3", "Inject the enabled check registry."],
   ["4", "Ask the local model for findings."],
   ["5", "Merge findings and print them."],
@@ -65,13 +65,13 @@ export default function Home() {
               Is AI making you dumber?
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
-              Stupify packs commit diffs with a tiny check registry, sends them
+              Stupify sends commit diffs with a tiny check registry
               to a local model, and asks whether AI replaced engineering
               judgment instead of helping it.
             </p>
             <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
               No hosted APIs. No sharing. No repo crawling. The current
-              milestone is only diffs plus checks to packed local model calls
+              milestone is only diffs plus checks to local model calls
               to findings.
             </p>
 
@@ -90,7 +90,7 @@ export default function Home() {
 
             <p className="mt-4 text-sm text-zinc-600">
               No search pipeline, no baseline, no scanner. Just checks, diffs,
-              packs, and findings.
+              local model calls, and findings.
             </p>
           </header>
 

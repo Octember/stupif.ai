@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { analyzePack } from "./analysis.js";
+import { analyzeBatch } from "./analysis.js";
+import { createModelBatches } from "./batch.js";
 import { enabledChecks } from "./checks.js";
 import { parseCommand } from "./command.js";
 import { MODEL_REGISTRY } from "./constants.js";
 import { readDiffFromStdin } from "./diff.js";
 import { readUnitForCommit, readUnitsForRecentCommits, unitFromStdinDiff } from "./git.js";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
-import { packDiffs } from "./pack.js";
 import { helpText, renderFindings } from "./render.js";
 import { trace } from "./trace.js";
-import type { AnalyzeCommand, DiffPack, DiffUnit, FindingsResult, StupifyCheck } from "./types.js";
+import type { AnalyzeCommand, DiffUnit, FindingsResult, ModelBatch, StupifyCheck } from "./types.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -25,12 +25,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const checks = enabledChecks(command.checkIds);
     const diffStartedAt = Date.now();
     const units = await trace.trace("diff.readUnits", () => readUnits(command));
-    const packs = trace.traceSync("diff.pack", () => packDiffs(units, checks), {
+    const batches = trace.traceSync("diff.batch", () => createModelBatches(units), {
       units: units.length,
       checks: checks.length,
     });
     const diffMs = Date.now() - diffStartedAt;
-    printRunPlan(command, units, packs);
+    printRunPlan(command, units, batches);
 
     const modelStartedAt = Date.now();
     const { modelPath, model } = await trace.trace("model.load", async () => {
@@ -42,15 +42,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const promptStartedAt = Date.now();
     const result = await trace.trace(
-      "analyze.packs",
-      async () => mergeResults(await analyzePacks(model, packs, checks)),
-      { packs: packs.length, units: units.length, checks: checks.length, modelPath },
+      "analyze.batches",
+      async () => mergeResults(await analyzeBatches(model, batches, checks)),
+      { batches: batches.length, units: units.length, checks: checks.length, modelPath },
     );
     const promptMs = Date.now() - promptStartedAt;
 
     console.log(renderFindings(result, command));
     console.error(
-      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} units=${units.length} packs=${packs.length} pack_bytes=${packs.reduce((total, pack) => total + pack.estimatedChars, 0)} checks=${checks.length} model=${command.model}`,
+      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} sources=${units.length} model_calls=${batches.length} checks=${checks.length} model=${command.model}`,
     );
     return 0;
   } catch (error) {
@@ -59,7 +59,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-function printRunPlan(command: AnalyzeCommand, units: readonly DiffUnit[], packs: readonly DiffPack[]): void {
+function printRunPlan(command: AnalyzeCommand, units: readonly DiffUnit[], batches: readonly ModelBatch[]): void {
   console.error("🧙 stupify 🪄");
   console.error(`Loading local model: ${MODEL_REGISTRY[command.model].name}`);
   if (command.kind === "commits") {
@@ -69,8 +69,8 @@ function printRunPlan(command: AnalyzeCommand, units: readonly DiffUnit[], packs
   } else {
     console.error("Analyzing stdin diff in one local process.");
   }
-  console.error(`Packed into ${packs.length} model call${packs.length === 1 ? "" : "s"}.`);
-  if (packs.length > 1 || units.length > 1) console.error("This may take a minute...");
+  console.error(`Model calls: ${batches.length}.`);
+  if (batches.length > 1 || units.length > 1) console.error("This may take a minute...");
 }
 
 async function readUnits(command: AnalyzeCommand): Promise<readonly DiffUnit[]> {
@@ -85,13 +85,13 @@ function mergeResults(results: readonly FindingsResult[]): FindingsResult {
   return { findings: results.flatMap((result) => result.findings) };
 }
 
-async function analyzePacks(
-  model: Parameters<typeof analyzePack>[0],
-  packs: readonly DiffPack[],
+async function analyzeBatches(
+  model: Parameters<typeof analyzeBatch>[0],
+  batches: readonly ModelBatch[],
   checks: readonly StupifyCheck[],
 ): Promise<readonly FindingsResult[]> {
   const results: FindingsResult[] = [];
-  for (const pack of packs) results.push(await analyzePack(model, pack, checks));
+  for (const batch of batches) results.push(await analyzeBatch(model, batch, checks));
   return results;
 }
 
