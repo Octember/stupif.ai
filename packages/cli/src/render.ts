@@ -14,12 +14,9 @@ Findings:
   return `🧙 stupify 🪄
 Findings:
 ${result.findings
-  .map(
-    (finding, index) => `${index + 1}. ${finding.checkId}
-   Source: ${finding.sourceId}
-   ${finding.why}
-   Proof: ${finding.proof}`,
-  )
+  .map((finding) => `- ${finding.sourceId} · ${finding.checkId}
+  ${finding.why}
+  Proof: ${finding.proof}`)
   .join("\n")}`;
 }
 
@@ -27,6 +24,7 @@ export function helpText(): string {
   return `Stupify ${VERSION}
 
 Usage:
+  stupify
   stupify --commit <commit>
   stupify --commits <count>
   git diff HEAD~1..HEAD | stupify --stdin
@@ -36,8 +34,8 @@ Options:
   --model <id>          qwen2.5-coder-7b, qwen2.5-coder-32b, or qwen2.5-coder-1.5b.
   --json                Print raw JSON findings.
 
-Output:
-  Findings from the enabled check registry.
+Default:
+  stupify is equivalent to stupify --commits 5.
 
 Not included:
   Repo scanning, categories, baselines, sharing, server calls, Ollama, or BYO model setup.
