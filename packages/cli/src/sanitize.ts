@@ -1,22 +1,43 @@
-import type { Judgment } from "./types.js";
+import type { Finding, FindingsResult, StupifyCheck } from "./types.js";
 
-export function isJudgment(value: unknown): value is Judgment {
+export function isFindingsResult(value: unknown): value is FindingsResult {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.findings) && record.findings.every(isFinding);
+}
+
+export function sanitizeFindingsResult(
+  result: FindingsResult,
+  checks: readonly StupifyCheck[],
+): FindingsResult {
+  const checkIds = new Set(checks.map((check) => check.id));
+  return {
+    findings: result.findings
+      .filter((finding) => checkIds.has(finding.checkId))
+      .slice(0, 5)
+      .map(sanitizeFinding),
+  };
+}
+
+function isFinding(value: unknown): value is Finding {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return (
+    typeof record.checkId === "string" &&
     typeof record.score === "number" &&
+    typeof record.confidence === "number" &&
     typeof record.why === "string" &&
-    typeof record.proof === "string" &&
-    typeof record.confidence === "number"
+    typeof record.proof === "string"
   );
 }
 
-export function sanitizeJudgment(judgment: Judgment): Judgment {
+function sanitizeFinding(finding: Finding): Finding {
   return {
-    score: Math.max(0, Math.min(10, Math.round(judgment.score))),
-    why: sanitizeSentence(judgment.why),
-    proof: sanitizeProof(judgment.proof),
-    confidence: Math.max(0, Math.min(1, Number(judgment.confidence.toFixed(2)))),
+    checkId: finding.checkId,
+    score: Math.max(0, Math.min(10, Math.round(finding.score))),
+    confidence: Math.max(0, Math.min(1, Number(finding.confidence.toFixed(2)))),
+    why: sanitizeSentence(finding.why),
+    proof: sanitizeProof(finding.proof),
   };
 }
 

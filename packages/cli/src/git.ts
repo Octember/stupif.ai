@@ -6,9 +6,9 @@ import type { DiffInput } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 export async function readDiffForCommit(commit: string): Promise<DiffInput> {
-  const raw = await commitDiff(commit);
+  const [raw, message] = await Promise.all([commitDiff(commit), commitMessage(commit)]);
   if (!raw.trim()) throw new Error(`No diff found for commit ${commit}.`);
-  return prepareDiff(raw);
+  return prepareDiff(raw, message.trim() || undefined);
 }
 
 async function commitDiff(commit: string): Promise<string> {
@@ -25,5 +25,16 @@ async function commitDiff(commit: string): Promise<string> {
     return stdout;
   } catch (error) {
     throw new Error(`Could not diff commit ${commit}.`);
+  }
+}
+
+async function commitMessage(commit: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["show", "--no-patch", "--format=%B", commit], {
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    throw new Error(`Could not read commit message for ${commit}.`);
   }
 }

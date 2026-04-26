@@ -1,8 +1,13 @@
-export type DiffJudgment = Readonly<{
+export type DiffFinding = Readonly<{
+  checkId: string;
   score: number;
+  confidence: number;
   why: string;
   proof: string;
-  confidence: number;
+}>;
+
+export type DiffFindings = Readonly<{
+  findings: readonly DiffFinding[];
 }>;
 
 export const NEVER_UPLOAD_FIELDS = [

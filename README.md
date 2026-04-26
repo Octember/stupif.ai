@@ -3,8 +3,8 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: point `npx @stupify/cli` at one commit, run the local model, and
-get one structured JSON judgment for that commit diff.
+Current goal: point `npx @stupify/cli` at one commit, inject the enabled check
+registry, run the local model, and print findings for that commit diff.
 
 ## CLI
 
@@ -20,7 +20,10 @@ Try a diff:
 npx @stupify/cli --commit HEAD
 ```
 
-Commit mode uses a zero-context git diff and prints timing metadata to stderr.
+Commit mode includes the commit message, uses a zero-context git diff, and
+prints timing metadata to stderr.
+The default registry currently checks duplicated schemas and unnecessary
+complexity.
 
 Lower-level pipe mode still exists:
 
@@ -29,7 +32,7 @@ git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 ```
 
 This iteration intentionally does not scan files directly, choose commit ranges,
-build findings, compare baselines, upload data, or call hosted LLM APIs.
+compare baselines, upload data, or call hosted LLM APIs.
 
 ## Product framing
 

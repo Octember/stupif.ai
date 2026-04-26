@@ -7,9 +7,10 @@ export async function readDiffFromStdin(): Promise<DiffInput> {
   return prepareDiff(raw);
 }
 
-export function prepareDiff(raw: string): DiffInput {
+export function prepareDiff(raw: string, commitMessage?: string): DiffInput {
   const labeled = labelHunks(raw);
   return {
+    commitMessage,
     text: labeled.text,
     hunkCount: labeled.hunkCount,
   };

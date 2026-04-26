@@ -7,7 +7,7 @@ export function meta({}: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "A local-only CLI that diffs one target commit and asks a local model for one JSON judgment.",
+        "A local-only CLI that diffs one target commit and asks a local model for registry-based findings.",
     },
   ];
 }
@@ -18,8 +18,8 @@ const V0_STEPS = [
   ["1", "Diff one target commit against its first parent."],
   ["2", "Add simple hunk labels for proof pointers."],
   ["3", "Download or load the cached GGUF model locally."],
-  ["4", "Ask the model for one structured JSON judgment."],
-  ["5", "Print that JSON to stdout."],
+  ["4", "Ask the model for findings from that registry."],
+  ["5", "Print findings to stdout."],
 ] as const;
 
 const NEVER_UPLOAD = [
@@ -66,12 +66,13 @@ export default function Home() {
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
               Stupify diffs one target commit, sends that patch to a local
-              model, and asks whether AI replaced engineering judgment instead
-              of helping it.
+              model with a tiny check registry, and asks whether AI replaced
+              engineering judgment instead of helping it.
             </p>
             <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
               No hosted APIs. No sharing. No repo crawling. The current
-              milestone is only commit diff to local model to JSON.
+              milestone is only commit diff plus checks to local model to
+              findings.
             </p>
 
             <div className="mt-8 flex max-w-xl flex-col gap-3 sm:flex-row">
@@ -88,8 +89,8 @@ export default function Home() {
             </div>
 
             <p className="mt-4 text-sm text-zinc-600">
-              No categories, no baseline, no scanner. Just one commit to one
-              judgment.
+              No search pipeline, no baseline, no scanner. Just one commit, a
+              registry, and findings.
             </p>
           </header>
 
@@ -158,7 +159,7 @@ export default function Home() {
         </section>
 
         <footer className="border-t border-zinc-900 py-8 text-sm text-zinc-600">
-          Stupify is currently a local commit-to-judgment proof.
+          Stupify is currently a local commit-to-findings proof.
         </footer>
       </section>
     </main>
@@ -171,7 +172,7 @@ function JudgmentPreview() {
       <div className="mb-5 flex items-center justify-between border-b border-zinc-800 pb-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-            JSON judgment
+            Findings
           </p>
           <h2 className="mt-1 text-xl font-semibold text-white">
             Stupify Output
@@ -184,7 +185,7 @@ function JudgmentPreview() {
 
       <dl className="space-y-4">
         <PreviewRow label="Question" value="Is AI making you dumber?" />
-        <PreviewRow label="Status" value="Local model roundtrip." />
+        <PreviewRow label="Status" value="Registry check roundtrip." />
         <PreviewRow label="Input" value="One commit diff" />
         <PreviewRow label="Local model contacted" value="Yes" />
         <PreviewRow label="Uploaded" value="Nothing" />
@@ -195,7 +196,8 @@ function JudgmentPreview() {
           Stdout shape
         </p>
         <p className="mt-2 text-sm leading-6 text-zinc-500">
-          score, why, proof, confidence. Nothing else is pretending to exist.
+          checkId, score, confidence, why, proof. Nothing else is pretending to
+          exist.
         </p>
       </div>
     </aside>

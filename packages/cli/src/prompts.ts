@@ -1,27 +1,49 @@
-import type { DiffInput } from "./types.js";
+import type { DiffInput, StupifyCheck } from "./types.js";
 
-export function judgmentPrompt(diff: DiffInput): string {
+export function findingsPrompt(diff: DiffInput, checks: readonly StupifyCheck[]): string {
   const hunkNote = diff.hunkCount > 0 ? "Use one of the provided hunk labels for proof." : "Use hunk-1 for proof.";
+  const commitMessage = diff.commitMessage
+    ? `COMMIT MESSAGE:\n${diff.commitMessage}\n\n`
+    : "";
 
   return `You are Stupify.
-Stupify checks whether AI may be making a developer dumber by looking at code diffs.
-You will receive one git diff.
-Judge only this:
-Does this diff show signs that the developer may have outsourced judgment instead of using AI as a tool?
+Stupify checks whether AI may be making a developer dumber by looking at a git diff.
+You will receive:
+1. An optional commit message.
+2. A git diff.
+3. A registry of checks.
+Use only the checks in the registry.
+Do not invent new check types.
+Return findings only when the evidence is meaningful.
+Prefer no finding over a weak finding.
+For each check:
+- strongSignals describe what should count
+- weakSignals are not enough by themselves
+- falsePositives are reasons to avoid flagging something
 Return JSON only:
 {
-  "score": 0-10,
-  "why": "one sentence",
-  "proof": "short pointer like hunk-1 or hunk-2",
-  "confidence": 0.0-1.0
+  "findings": [
+    {
+      "checkId": "string",
+      "score": 0,
+      "confidence": 0,
+      "why": "one sentence",
+      "proof": "short pointer"
+    }
+  ]
 }
 Rules:
+- max 5 findings
 - Do not quote code.
-- Do not include identifiers.
-- Do not over-explain.
-- If the diff looks fine, score low.
+- Do not include long identifiers.
+- Do not moralize.
+- If nothing meaningful is found, return { "findings": [] }.
 - ${hunkNote}
 
-Diff:
+CHECK REGISTRY:
+${JSON.stringify(checks, null, 2)}
+
+${commitMessage}\
+DIFF:
 ${diff.text}`;
 }

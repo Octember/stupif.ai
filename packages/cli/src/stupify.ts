@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { judgeDiff } from "./analysis.js";
+import { analyzeDiff } from "./analysis.js";
+import { enabledChecks } from "./checks.js";
 import { parseCommand } from "./command.js";
 import { readDiffFromStdin } from "./diff.js";
 import { readDiffForCommit } from "./git.js";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
-import { helpText, renderJudgment } from "./render.js";
+import { helpText, renderFindings } from "./render.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -17,6 +18,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 0;
     }
 
+    const checks = enabledChecks(command.checkIds);
     const diffStartedAt = Date.now();
     const diff =
       command.kind === "commit"
@@ -30,12 +32,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const modelMs = Date.now() - modelStartedAt;
 
     const promptStartedAt = Date.now();
-    const judgment = await judgeDiff(model, diff);
+    const result = await analyzeDiff(model, diff, checks);
     const promptMs = Date.now() - promptStartedAt;
 
-    console.log(renderJudgment(judgment));
+    console.log(renderFindings(result, command));
     console.error(
-      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} diff_bytes=${Buffer.byteLength(diff.text, "utf8")} hunks=${diff.hunkCount}`,
+      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} diff_bytes=${Buffer.byteLength(diff.text, "utf8")} commit_message_bytes=${Buffer.byteLength(diff.commitMessage ?? "", "utf8")} hunks=${diff.hunkCount} checks=${checks.length}`,
     );
     return 0;
   } catch (error) {

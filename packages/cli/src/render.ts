@@ -1,8 +1,24 @@
 import { VERSION } from "./constants.js";
-import type { Judgment } from "./types.js";
+import type { Command, FindingsResult } from "./types.js";
 
-export function renderJudgment(judgment: Judgment): string {
-  return JSON.stringify(judgment, null, 2);
+export function renderFindings(result: FindingsResult, command: Command): string {
+  if (command.kind === "help" || command.json) return JSON.stringify(result, null, 2);
+
+  if (result.findings.length === 0) {
+    return `STUPIFY
+Findings:
+  None.`;
+  }
+
+  return `STUPIFY
+Findings:
+${result.findings
+  .map(
+    (finding, index) => `${index + 1}. ${finding.checkId} · ${finding.score}/10 · confidence ${finding.confidence}
+   ${finding.why}
+   Proof: ${finding.proof}`,
+  )
+  .join("\n")}`;
 }
 
 export function helpText(): string {
@@ -12,8 +28,12 @@ Usage:
   stupify --commit <commit>
   git diff HEAD~1..HEAD | stupify --stdin
 
+Options:
+  --checks <ids>        Comma-separated check ids.
+  --json                Print raw JSON findings.
+
 Output:
-  One structured JSON judgment.
+  Findings from the enabled check registry.
 
 Not included:
   Repo scanning, categories, baselines, sharing, server calls, Ollama, or BYO model setup.

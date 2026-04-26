@@ -1,29 +1,45 @@
-import { judgmentPrompt } from "./prompts.js";
-import { isJudgment, sanitizeJudgment } from "./sanitize.js";
+import { findingsPrompt } from "./prompts.js";
+import { isFindingsResult, sanitizeFindingsResult } from "./sanitize.js";
 import type { LocalModel } from "./model.js";
-import type { DiffInput, Judgment } from "./types.js";
+import type { DiffInput, FindingsResult, StupifyCheck } from "./types.js";
 
-export async function judgeDiff(model: LocalModel, diff: DiffInput): Promise<Judgment> {
+export async function analyzeDiff(
+  model: LocalModel,
+  diff: DiffInput,
+  checks: readonly StupifyCheck[],
+): Promise<FindingsResult> {
   const grammar = await model.llama.createGrammarForJsonSchema({
     type: "object",
     properties: {
-      score: { type: "number" },
-      why: { type: "string" },
-      proof: { type: "string" },
-      confidence: { type: "number" },
+      findings: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          properties: {
+            checkId: { type: "string" },
+            score: { type: "number" },
+            confidence: { type: "number" },
+            why: { type: "string" },
+            proof: { type: "string" },
+          },
+          required: ["checkId", "score", "confidence", "why", "proof"],
+          additionalProperties: false,
+        },
+      },
     },
-    required: ["score", "why", "proof", "confidence"],
+    required: ["findings"],
     additionalProperties: false,
   });
 
-  const raw = await model.session.prompt(judgmentPrompt(diff), { grammar, maxTokens: 180 });
+  const raw = await model.session.prompt(findingsPrompt(diff, checks), { grammar, maxTokens: 420 });
   const parsed = parseModelJson(raw, grammar);
-  if (!isJudgment(parsed)) {
+  if (!isFindingsResult(parsed)) {
     console.error("Raw model output:");
     console.error(raw);
-    throw new Error("Model returned invalid judgment JSON.");
+    throw new Error("Model returned invalid findings JSON.");
   }
-  return sanitizeJudgment(parsed);
+  return sanitizeFindingsResult(parsed, checks);
 }
 
 function parseModelJson(raw: string, grammar: { parse(input: string): unknown }): unknown {
