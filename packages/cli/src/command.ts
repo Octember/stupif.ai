@@ -2,6 +2,10 @@ import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.js";
 import type { Command } from "./types.js";
 
 export function parseCommand(argv: readonly string[]): Command {
+  if (argv.length === 0) {
+    return { kind: "commits", count: 5, checkIds: null, json: false, model: DEFAULT_MODEL_ID };
+  }
+
   if (argv.length === 1 && isHelp(argv[0])) {
     return { kind: "help" };
   }

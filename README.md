@@ -3,8 +3,8 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: load diffs, inject the enabled check registry, pack inputs to fit
-the model window, run the local model, and print findings.
+Current goal: load diffs, inject the enabled check registry, send small groups
+of diffs to the local model, and print findings.
 
 ## CLI
 
@@ -31,7 +31,8 @@ Analyze recent commits:
 npx @stupify/cli --commits 20
 ```
 
-Small commits are packed together. Oversized commits are split into parts.
+Small commits can share a model call. Oversized commit handling is intentionally
+simple until the runtime earns more complexity.
 
 Lower-level pipe mode still exists:
 

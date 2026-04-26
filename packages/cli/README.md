@@ -3,7 +3,7 @@
 Local-only diagnostic CLI for checking whether AI is making you dumber.
 
 This iteration proves that the CLI can load diffs, inject a tiny check registry,
-pack inputs to fit the model window, load the local model, and print findings.
+send small groups of diffs to the local model, and print findings.
 
 ```sh
 npx @stupify/cli --commit HEAD

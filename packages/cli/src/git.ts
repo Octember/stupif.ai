@@ -5,7 +5,9 @@ import { prepareDiff } from "./diff.js";
 import type { DiffUnit } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const MAX_RELATED_CONTEXT_CHARS = 12_000;
+const MAX_RELATED_FILES_PER_SOURCE = 5;
+const MAX_RELATED_CHARS_PER_FILE = 4_000;
+const MAX_RELATED_CONTEXT_CHARS_PER_SOURCE = 16_000;
 
 export async function readUnitForCommit(commit: string): Promise<DiffUnit> {
   const [raw, message] = await Promise.all([commitDiff(commit), commitMessage(commit)]);
@@ -53,14 +55,19 @@ async function readRelatedImportContext(commit: string, rawDiff: string): Promis
   const blocks: string[] = [];
   let usedChars = 0;
 
-  for (const filePath of refs) {
+  for (const filePath of refs.slice(0, MAX_RELATED_FILES_PER_SOURCE)) {
     const content = await showFileAtCommit(`${commit}^1`, filePath) ?? await showFileAtCommit(commit, filePath);
     if (!content) continue;
+    if (looksBinary(content)) continue;
 
-    const block = `FILE ${filePath}\n${content.trim()}`;
-    if (usedChars + block.length > MAX_RELATED_CONTEXT_CHARS) break;
-    blocks.push(block);
-    usedChars += block.length;
+    const remaining = MAX_RELATED_CONTEXT_CHARS_PER_SOURCE - usedChars;
+    if (remaining <= 0) break;
+    const budget = Math.min(MAX_RELATED_CHARS_PER_FILE, remaining);
+    const trimmed = content.trim();
+    const truncated = trimmed.length > budget;
+    const body = truncated ? trimmed.slice(0, budget) : trimmed;
+    blocks.push(`FILE ${filePath}${truncated ? " (truncated)" : ""}\n${body}`);
+    usedChars += body.length;
   }
 
   return blocks.join("\n\n");
@@ -82,6 +89,7 @@ function relatedLocalImports(rawDiff: string): readonly string[] {
     if (!importMatch || !importMatch[1].startsWith(".")) continue;
 
     for (const candidate of resolveImportCandidates(currentFile, importMatch[1])) {
+      if (!isSafeRelatedPath(candidate)) continue;
       refs.add(candidate);
     }
   }
@@ -97,6 +105,23 @@ function resolveImportCandidates(importer: string, specifier: string): readonly 
   }
   if (path.posix.extname(base)) return [base];
   return [`${base}.ts`, `${base}.tsx`, path.posix.join(base, "index.ts"), path.posix.join(base, "index.tsx")];
+}
+
+function isSafeRelatedPath(filePath: string): boolean {
+  if (filePath.startsWith("../") || path.posix.isAbsolute(filePath)) return false;
+  const parts = filePath.split("/");
+  if (parts.some((part) => part === "..")) return false;
+  if (parts.some((part) => ["node_modules", "dist", "build", ".git", "vendor", "coverage"].includes(part))) {
+    return false;
+  }
+  const base = path.posix.basename(filePath).toLowerCase();
+  if (base.startsWith(".env") || /secret|credential|private|token|key/.test(base)) return false;
+  if (/\.(lock|map|min\.js|png|jpg|jpeg|gif|webp|ico|pdf|zip|gz|wasm)$/i.test(base)) return false;
+  return /\.(ts|tsx|js|jsx|mjs|cjs|json)$/i.test(base);
+}
+
+function looksBinary(content: string): boolean {
+  return content.includes("\0");
 }
 
 async function showFileAtCommit(commit: string, filePath: string): Promise<string | null> {
