@@ -1,8 +1,8 @@
-import type { StupifyCheck } from "./types.js";
+import { checkId, type StupifyCheck } from "./types.js";
 
 export const defaultChecks: readonly StupifyCheck[] = [
   {
-    id: "duplicated_schema", name: "Duplicated schema",
+    id: checkId("duplicated_schema"), name: "Duplicated schema",
     question: "Did the change copy an existing or typed shape into a new local type, payload, DTO, schema, or response object?",
     matchWhen: [
       "imports a shared or typed input and defines a local payload with matching fields",
@@ -29,7 +29,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     },
   },
   {
-    id: "unnecessary_complexity", name: "Unnecessary complexity",
+    id: checkId("unnecessary_complexity"), name: "Unnecessary complexity",
     question: "Did the change add structure without buying clarity?",
     matchWhen: ["simple logic split across layers", "wrapper/helper/service around one operation", "more files without clearer behavior"],
     doNotMatchWhen: [
@@ -49,7 +49,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     },
   },
   {
-    id: "fake_precision_windowing",
+    id: checkId("fake_precision_windowing"),
     name: "Fake precision windowing",
     question: "Did the change add elaborate counting, budgeting, batching, or accounting logic that pretends to manage model context more precisely than it actually can?",
     matchWhen: [
@@ -78,7 +78,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
 export function enabledChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
   if (!checkIds) return defaultChecks;
 
-  const checksById = new Map(defaultChecks.map((check) => [check.id, check]));
+  const checksById = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
   return checkIds.map((id) => {
     const check = checksById.get(id);
     if (!check) throw new Error(`Unknown check: ${id}`);

@@ -1,7 +1,7 @@
 import { findingsPrompt } from "./prompts.js";
 import { validateFindingsResult } from "./validate.js";
 import type { LocalModel } from "./model.js";
-import type { FindingsResult, ModelInput, StupifyCheck } from "./types.js";
+import type { FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.js";
 
 export async function analyzeInput(
   model: LocalModel,
@@ -74,7 +74,7 @@ function parseFindings(
     console.error("Parsed model findings:");
     console.error(JSON.stringify(parsed, null, 2));
   }
-  return validateFindingsResult(decisionsToFindings(parsed), checks, input);
+  return validateFindingsResult(decisionsToFindingCandidates(parsed), checks, input);
 }
 
 type CheckDecision = Readonly<{
@@ -107,7 +107,7 @@ function isCheckDecision(value: unknown): value is CheckDecision {
   );
 }
 
-function decisionsToFindings(result: CheckResult): FindingsResult {
+function decisionsToFindingCandidates(result: CheckResult): FindingsCandidate {
   return {
     findings: result.checks
       .filter((decision) => decision.matched)

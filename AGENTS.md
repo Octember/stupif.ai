@@ -33,7 +33,6 @@ Useful commands:
 ```sh
 bun run typecheck
 bun run typecheck:web
-bun run typecheck:core
 bun run typecheck:cli
 bun run smoke:cli
 bun run build
