@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { analyzePack } from "./analysis.js";
 import { enabledChecks } from "./checks.js";
 import { parseCommand } from "./command.js";
+import { MODEL_REGISTRY } from "./constants.js";
 import { readDiffFromStdin } from "./diff.js";
 import { readUnitForCommit, readUnitsForRecentCommits, unitFromStdinDiff } from "./git.js";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
@@ -25,10 +26,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const units = await readUnits(command);
     const packs = packDiffs(units, checks);
     const diffMs = Date.now() - diffStartedAt;
+    printRunPlan(command, units, packs);
 
     const modelStartedAt = Date.now();
-    const modelPath = await firstRunModelBootstrap();
-    const model = await loadLocalModel(modelPath);
+    const modelPath = await firstRunModelBootstrap(command.model);
+    const model = await loadLocalModel(modelPath, MODEL_REGISTRY[command.model].name);
     const modelMs = Date.now() - modelStartedAt;
 
     const promptStartedAt = Date.now();
@@ -37,13 +39,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     console.log(renderFindings(result, command));
     console.error(
-      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} units=${units.length} packs=${packs.length} pack_bytes=${packs.reduce((total, pack) => total + pack.estimatedChars, 0)} checks=${checks.length}`,
+      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} units=${units.length} packs=${packs.length} pack_bytes=${packs.reduce((total, pack) => total + pack.estimatedChars, 0)} checks=${checks.length} model=${command.model}`,
     );
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
+}
+
+function printRunPlan(command: AnalyzeCommand, units: readonly DiffUnit[], packs: readonly DiffPack[]): void {
+  console.error("🧙 stupify 🪄");
+  console.error(`Loading local model: ${MODEL_REGISTRY[command.model].name}`);
+  if (command.kind === "commits") {
+    console.error(`Analyzing ${units.length} commits in one local process.`);
+  } else if (command.kind === "commit") {
+    console.error(`Analyzing commit ${command.commit} in one local process.`);
+  } else {
+    console.error("Analyzing stdin diff in one local process.");
+  }
+  console.error(`Packed into ${packs.length} model call${packs.length === 1 ? "" : "s"}.`);
+  if (packs.length > 1 || units.length > 1) console.error("This may take a minute...");
 }
 
 async function readUnits(command: AnalyzeCommand): Promise<readonly DiffUnit[]> {
