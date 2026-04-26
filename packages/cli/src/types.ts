@@ -18,18 +18,21 @@ export type DiffUnit = Readonly<{
   text: string;
 }>;
 
-export type DiffPack = Readonly<{
+export type ModelBatch = Readonly<{
   id: string;
   units: readonly DiffUnit[];
-  estimatedChars: number;
 }>;
 
 export type StupifyCheck = Readonly<{
   id: string;
   name: string;
   question: string;
-  signals: readonly string[];
-  examples?: readonly string[];
+  matchWhen: readonly string[];
+  doNotMatchWhen: readonly string[];
+  examples?: Readonly<{
+    match?: readonly string[];
+    noMatch?: readonly string[];
+  }>;
 }>;
 
 export type Finding = Readonly<{
