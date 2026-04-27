@@ -170,6 +170,51 @@ PACKED FILE CONTEXT (${pack.provider}, ${pack.filePaths.length} files, ${pack.to
 ${pack.text || "(none)"}`;
 }
 
+export function searchPrompt(
+  stagedChanges: string,
+  patterns: readonly StupifyCheck[],
+): string {
+  return `You are Stupify's local search model.
+Stupify checks whether AI-assisted coding may be replacing developer judgment.
+You will receive:
+1. Staged code changes.
+2. A small registry of search patterns.
+Your job:
+Search the staged changes for concrete matches to the enabled patterns.
+This is a commit-hook warning system.
+False positives are expensive.
+Only emit a match if the pattern clearly applies.
+Do not perform general code review.
+Do not suggest improvements.
+Do not apply patterns that are not enabled.
+Do not emit clean results.
+Omitted pattern = clean.
+Return JSON only:
+{
+  "matches": [
+    {
+      "patternId": "string",
+      "reason": "one sentence",
+      "proof": "short pointer"
+    }
+  ]
+}
+Rules:
+- Use only enabled pattern IDs.
+- Emit at most 5 matches.
+- Prefer no match over a weak match.
+- Do not quote source code.
+- Do not write generic feedback.
+- Do not emit "no evidence" or "does not apply."
+- If nothing clearly matches, return { "matches": [] }.
+
+ENABLED PATTERNS:
+${patterns.map(formatSearchPattern).join("\n\n")}
+
+STAGED CHANGES:
+${stagedChanges}`;
+}
+
 function formatCompactChecks(checks: readonly StupifyCheck[]): string {
   return `Checks:
 ${checks.map((check) => `- ${check.id}: ${check.lookFor.join("; ")}`).join("\n")}`;
@@ -191,6 +236,16 @@ Match examples:
 ${(check.examples?.match ?? []).map((example) => `- ${example}`).join("\n")}
 No-match examples:
 ${(check.examples?.noMatch ?? []).map((example) => `- ${example}`).join("\n")}`;
+}
+
+function formatSearchPattern(check: StupifyCheck): string {
+  return `# ${check.name}
+ID: ${check.id}
+${check.searchPrompt ?? check.question}
+Match examples:
+${(check.searchExamples?.match ?? check.examples?.match ?? []).map((example) => `- ${example}`).join("\n")}
+Non-match examples:
+${(check.searchExamples?.nonMatch ?? check.examples?.noMatch ?? []).map((example) => `- ${example}`).join("\n")}`;
 }
 
 function formatContext(context: CandidateContext): string {

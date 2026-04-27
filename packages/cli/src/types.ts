@@ -17,6 +17,8 @@ export type Engine = "raw-diff" | "sem";
 export type ScoutMode = "llm" | "counter";
 export type AuditContextMode = "none" | "repomix";
 export type AuditPromptName = "strict" | "high_bar";
+export type SearchMode = "warn" | "off";
+export type HookAction = "install" | "uninstall" | "status";
 
 type AnalyzeOptions = Readonly<{
   checkIds: readonly string[] | null;
@@ -37,6 +39,8 @@ type AnalyzeOptions = Readonly<{
 export type Command =
   | Readonly<{ kind: "help" }>
   | Readonly<{ kind: "experiment"; configPath: string }>
+  | Readonly<{ kind: "hook"; action: HookAction }>
+  | SearchCommand
   | (Readonly<{ kind: "since"; since: string }> & AnalyzeOptions)
   | (Readonly<{ kind: "stdin" }> & AnalyzeOptions)
   | (Readonly<{ kind: "commit"; commit: string }> & AnalyzeOptions)
@@ -44,9 +48,21 @@ export type Command =
 
 type ControlCommand =
   | Readonly<{ kind: "help" }>
-  | Readonly<{ kind: "experiment"; configPath: string }>;
+  | Readonly<{ kind: "experiment"; configPath: string }>
+  | Readonly<{ kind: "hook"; action: HookAction }>
+  | SearchCommand;
 
 export type AnalyzeCommand = Exclude<Command, ControlCommand>;
+
+export type SearchCommand = Readonly<{
+  kind: "staged";
+  mode: "search";
+  source: "staged";
+  checkIds: readonly string[] | null;
+  json: boolean;
+  model: ModelId;
+  maxSearchInputTokens: number;
+}>;
 
 export type StupifyCheck = Readonly<{
   id: CheckId;
@@ -55,6 +71,12 @@ export type StupifyCheck = Readonly<{
   lookFor: readonly string[];
   ignoreWhen: readonly string[];
   enabledByDefault?: boolean;
+  hookMode?: SearchMode;
+  searchPrompt?: string;
+  searchExamples?: Readonly<{
+    match: readonly string[];
+    nonMatch: readonly string[];
+  }>;
   examples?: Readonly<{
     match?: readonly string[];
     noMatch?: readonly string[];
@@ -95,6 +117,11 @@ export type NetDiffStats = Readonly<{
   filesChanged: number;
   additions: number;
   deletions: number;
+}>;
+
+export type StagedDiff = Readonly<{
+  text: string;
+  stats: NetDiffStats;
 }>;
 
 export type NetDiff = Readonly<{
@@ -244,6 +271,28 @@ export type TraceEvent = Readonly<{
 export type AnalysisReport = Readonly<{
   run: AnalysisRun;
   result: FindingsResult;
+}>;
+
+export type SearchMatch = Readonly<{
+  patternId: CheckId;
+  reason: string;
+  proof: string;
+}>;
+
+export type SearchRunJson = Readonly<{
+  schemaVersion: "search.v1";
+  mode: "search";
+  source: "staged";
+  model: Readonly<{ id: ModelId }>;
+  patterns: readonly CheckId[];
+  stats: Readonly<{
+    elapsedMs: number;
+    modelCalls: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    truncated?: boolean;
+  }>;
+  matches: readonly SearchMatch[];
 }>;
 
 export type ModelId =

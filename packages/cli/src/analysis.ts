@@ -1,4 +1,4 @@
-import { auditPrompt, findingsAuditPrompt, scoutPrompt, semScoutPrompt } from "./prompts.ts";
+import { auditPrompt, findingsAuditPrompt, scoutPrompt, searchPrompt, semScoutPrompt } from "./prompts.ts";
 import { cachedJson, fingerprint } from "./cache.ts";
 import type { LocalModel } from "./model.ts";
 import type {
@@ -10,6 +10,7 @@ import type {
   Finding,
   FindingsResult,
   NetDiff,
+  SearchMatch,
   SemCandidate,
   SemChangeSet,
   SemContext,
@@ -119,6 +120,30 @@ export async function countPromptTokens(model: LocalModel, prompt: string): Prom
   return cached.count;
 }
 
+export async function searchStagedChanges(
+  model: LocalModel,
+  stagedChanges: string,
+  patterns: readonly StupifyCheck[],
+): Promise<readonly SearchMatch[]> {
+  const raw = await runJsonPrompt(
+    model,
+    searchPrompt(stagedChanges, patterns),
+    searchSchema(patterns),
+    0,
+  );
+  return uncheckedSearchMatches(raw);
+}
+
+export function searchRequest(
+  stagedChanges: string,
+  patterns: readonly StupifyCheck[],
+): Readonly<{ prompt: string; schema: unknown }> {
+  return {
+    prompt: searchPrompt(stagedChanges, patterns),
+    schema: searchSchema(patterns),
+  };
+}
+
 function findingsAuditSchema(contexts: readonly SemContext[]): unknown {
   const targetIds = contexts.map((context) => context.targetId);
   const findingItem = {
@@ -152,6 +177,30 @@ function findingsAuditSchema(contexts: readonly SemContext[]): unknown {
         items: uncertainItem,
       },
     },
+    additionalProperties: false,
+  };
+}
+
+function searchSchema(patterns: readonly StupifyCheck[]): unknown {
+  return {
+    type: "object",
+    properties: {
+      matches: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          properties: {
+            patternId: { type: "string", enum: patterns.map((pattern) => pattern.id) },
+            reason: { type: "string" },
+            proof: { type: "string" },
+          },
+          required: ["patternId", "reason", "proof"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["matches"],
     additionalProperties: false,
   };
 }
@@ -253,9 +302,26 @@ type RawFindingsAuditOutput = Readonly<{
   findings?: readonly RawFindingReview[];
   uncertain?: readonly RawFindingReview[];
 }>;
+type RawSearchOutput = Readonly<{
+  matches?: readonly RawSearchMatch[];
+}>;
+type RawSearchMatch = Readonly<{
+  patternId?: string;
+  reason?: string;
+  proof?: string;
+}>;
 
 function uncheckedCandidates(value: unknown): readonly string[] {
   return [...((value as RawScoutOutput).candidates ?? [])];
+}
+
+function uncheckedSearchMatches(value: unknown): readonly SearchMatch[] {
+  const output = value as RawSearchOutput;
+  return (output.matches ?? []).map((match) => ({
+    patternId: (match.patternId ?? "") as SearchMatch["patternId"],
+    reason: match.reason ?? "",
+    proof: match.proof ?? "",
+  }));
 }
 
 function uncheckedRawAuditResult(value: unknown, sourceId: SourceId): FindingsResult {
