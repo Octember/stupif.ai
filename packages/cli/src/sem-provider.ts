@@ -63,7 +63,6 @@ async function semChangeSetFromPatch(patch: string, debugSem: boolean): Promise<
       patchHash: fingerprint(patch),
     }),
     () => runSemWithInput(["diff", "--patch", "--format", "json"], patch, debugSem),
-    debugSem,
   );
   return {
     ...normalizeSemDiff(raw, {
@@ -93,7 +92,6 @@ async function cachedSemDiff(
       target: range.target,
     }),
     () => runSem(args, debugSem),
-    debugSem,
   );
 }
 

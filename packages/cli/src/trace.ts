@@ -13,7 +13,7 @@ export type CreateTracerOptions = {
 };
 
 export function createTracer(options?: CreateTracerOptions): Tracer {
-  const enabled = options?.enabled ?? envFlagEnabled("STUPIF_TRACE");
+  const enabled = options?.enabled ?? true;
   const writeLine = options?.writeLine ?? ((line) => process.stderr.write(line + "\n"));
   const nowMs = () => performance.now();
 
@@ -48,11 +48,3 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
 }
 
 export const trace: Tracer = createTracer();
-
-function envFlagEnabled(name: string): boolean {
-  const raw = process.env[name];
-  if (!raw) return false;
-  const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-

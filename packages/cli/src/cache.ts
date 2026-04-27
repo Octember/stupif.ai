@@ -12,16 +12,14 @@ export async function cachedJson<T>(
   namespace: string,
   key: string,
   compute: () => Promise<T>,
-  debug = false,
 ): Promise<T> {
-  if (cacheDisabled()) return compute();
   const filePath = cachePath(namespace, key);
   try {
     const value = JSON.parse(await readFile(filePath, "utf8")) as T;
-    if (debug) console.error(`cache hit ${namespace} ${key.slice(0, 12)}`);
+    console.error(`cache hit ${namespace} ${key.slice(0, 12)}`);
     return value;
   } catch {
-    if (debug) console.error(`cache miss ${namespace} ${key.slice(0, 12)}`);
+    console.error(`cache miss ${namespace} ${key.slice(0, 12)}`);
   }
 
   const value = await compute();
@@ -51,11 +49,6 @@ function cacheRoot(): string {
   if (platform() === "darwin") return path.join(homedir(), "Library", "Caches", "stupify");
   if (platform() === "win32" && process.env.LOCALAPPDATA) return path.join(process.env.LOCALAPPDATA, "stupify", "Cache");
   return path.join(homedir(), ".cache", "stupify");
-}
-
-function cacheDisabled(): boolean {
-  const value = process.env.STUPIFY_DISABLE_CACHE?.trim().toLowerCase();
-  return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
 function safeNamespace(value: string): string {
