@@ -8,10 +8,12 @@ import {
   runFindingsAudit,
   scoutBatch,
   scoutSemChanges,
+  searchRequest,
+  searchStagedChanges,
 } from "./analysis.ts";
 import { batchDiff } from "./batcher.ts";
 import { candidateContexts } from "./candidate-context.ts";
-import { enabledChecks } from "./checks.ts";
+import { enabledChecks, searchChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
 import { MODEL_REGISTRY } from "./constants.ts";
 import { counterScoutTargets } from "./counter-scout.ts";
@@ -22,10 +24,12 @@ import {
   netDiffForRecentCommits,
   netDiffFromStdin,
   netDiffSince,
+  stagedDiff,
 } from "./git.ts";
-import { loadLocalModels, type LocalModel } from "./model.ts";
+import { runHookCommand } from "./hooks.ts";
+import { firstRunModelBootstrap, loadLocalModel, loadLocalModels, type LocalModel } from "./model.ts";
 import { emptyContextPack, entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
-import { helpText, renderReport } from "./render.ts";
+import { helpText, renderReport, renderSearchRun } from "./render.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
 import { createTracer, trace } from "./trace.ts";
 import type {
@@ -36,6 +40,8 @@ import type {
   DebugTarget,
   FindingsResult,
   NetDiff,
+  SearchCommand,
+  SearchRunJson,
   SemCandidate,
   SemChangeSet,
   SemContext,
@@ -57,6 +63,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(`Experiment results written to ${outputDir}`);
       return 0;
     }
+    if (command.kind === "hook") {
+      console.log(await runHookCommand(command.action));
+      return 0;
+    }
+    if (command.kind === "staged") {
+      const run = await runStagedSearch(command, startedAt);
+      console.log(renderSearchRun(run, command));
+      return 0;
+    }
 
     const checks = enabledChecks(command.checkIds);
     const report =
@@ -70,6 +85,74 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
+}
+
+async function runStagedSearch(command: SearchCommand, startedAt: number): Promise<SearchRunJson> {
+  const diff = await stagedDiff();
+  const checks = searchChecks(command.checkIds);
+  const patternIds = checks.map((check) => check.id);
+
+  if (!diff.text.trim()) {
+    return {
+      schemaVersion: "search.v1",
+      mode: "search",
+      source: "staged",
+      model: { id: command.model },
+      patterns: patternIds,
+      stats: { elapsedMs: Date.now() - startedAt, modelCalls: 0 },
+      matches: [],
+    };
+  }
+
+  printSearchRunPlan(command, diff.stats, patternIds);
+  const modelPath = await firstRunModelBootstrap(command.model);
+  const model = await loadLocalModel(modelPath, command.model, "scout");
+  const bounded = await boundedSearchInput(model, diff.text, checks, command.maxSearchInputTokens);
+  const matches = await searchStagedChanges(model, bounded.text, checks);
+
+  return {
+    schemaVersion: "search.v1",
+    mode: "search",
+    source: "staged",
+    model: { id: command.model },
+    patterns: patternIds,
+    stats: {
+      elapsedMs: Date.now() - startedAt,
+      modelCalls: 1,
+      inputTokens: bounded.tokens,
+      truncated: bounded.truncated || undefined,
+    },
+    matches,
+  };
+}
+
+async function boundedSearchInput(
+  model: LocalModel,
+  stagedChanges: string,
+  checks: ReturnType<typeof searchChecks>,
+  maxTokens: number,
+): Promise<Readonly<{ text: string; tokens: number; truncated: boolean }>> {
+  let text = stagedChanges;
+  let truncated = false;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const tokens = await countPromptTokens(model, searchRequest(text, checks).prompt);
+    if (tokens <= maxTokens) return { text, tokens, truncated };
+
+    truncated = true;
+    const estimatedLength = Math.max(
+      1_000,
+      Math.floor(text.length * (maxTokens / tokens) * 0.85),
+    );
+    const nextLength = estimatedLength >= text.length
+      ? Math.max(200, Math.floor(text.length * 0.75))
+      : estimatedLength;
+    text = `${stagedChanges.slice(0, nextLength)}
+[stupify: staged diff truncated to fit search input budget]`;
+  }
+
+  const tokens = await countPromptTokens(model, searchRequest(text, checks).prompt);
+  return { text, tokens, truncated };
 }
 
 async function runRawDiffEngine(
@@ -583,6 +666,20 @@ function printSemRunPlan(
   );
   console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
   console.error(`Checks: ${checkIds.join(", ")}`);
+}
+
+function printSearchRunPlan(
+  command: SearchCommand,
+  stats: NetDiff["stats"],
+  patternIds: readonly string[],
+): void {
+  if (command.json) return;
+  console.error("Mode: staged search");
+  console.error(
+    `Diff: ${stats.filesChanged} files changed, ${stats.additions} added, ${stats.deletions} deleted`,
+  );
+  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
+  console.error(`Patterns: ${patternIds.join(", ")}`);
 }
 
 async function netDiffForCommand(command: AnalyzeCommand): Promise<NetDiff> {

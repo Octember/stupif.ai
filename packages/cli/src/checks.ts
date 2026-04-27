@@ -23,6 +23,21 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ignoreWhen: [
       "isolates dependency, removes duplication, or improves testability",
     ],
+    hookMode: "warn",
+    searchPrompt: "Find staged changes where a simple decision is wrapped in new helpers, services, wrappers, boundaries, abstractions, or indirection without an obvious payoff.",
+    searchExamples: {
+      match: [
+        "A small inline operation becomes a helper/service/wrapper with one obvious caller.",
+        "A straightforward flow is split across files in a way that hides the decision.",
+        "A new abstraction appears before there is evidence it buys clarity, correctness, reuse, or isolation.",
+      ],
+      nonMatch: [
+        "A real external dependency boundary is isolated.",
+        "A security/auth boundary becomes clearer.",
+        "A refactor removes larger complexity elsewhere.",
+        "Framework-required structure is added.",
+      ],
+    },
   },
   {
     id: checkId("fake_precision_windowing"),
@@ -68,6 +83,21 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ignoreWhen: [
       "comment explains intent, constraint, workaround, or public API behavior",
     ],
+    hookMode: "warn",
+    searchPrompt: "Find staged changes where comments appear to substitute for judgment rather than clarify it.",
+    searchExamples: {
+      match: [
+        "New comments narrate obvious code instead of explaining tradeoffs.",
+        "A simple change gains multiple generic comments that restate control flow.",
+        "Comments make the code look more deliberate without adding useful reasoning.",
+      ],
+      nonMatch: [
+        "Comments explain a real domain constraint.",
+        "Comments document an external API quirk.",
+        "Comments clarify a surprising edge case.",
+        "Comments are sparse and specific.",
+      ],
+    },
   },
   {
     id: checkId("lint_bypass"),
@@ -123,6 +153,16 @@ export const defaultChecks: readonly StupifyCheck[] = [
 export function enabledChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
   if (!checkIds) return defaultChecks.filter((check) => check.enabledByDefault !== false);
 
+  return checksById(checkIds);
+}
+
+export function searchChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
+  if (!checkIds) return defaultChecks.filter((check) => check.hookMode === "warn");
+
+  return checksById(checkIds);
+}
+
+function checksById(checkIds: readonly string[]): readonly StupifyCheck[] {
   const checksById = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
   return checkIds.map((id) => {
     const check = checksById.get(id);

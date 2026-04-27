@@ -1,5 +1,5 @@
 import { VERSION } from "./constants.ts";
-import type { AnalysisReport, AnalyzeCommand } from "./types.ts";
+import type { AnalysisReport, AnalyzeCommand, SearchCommand, SearchRunJson } from "./types.ts";
 
 export function renderReport(report: AnalysisReport, command: AnalyzeCommand): string {
   if (command.json) {
@@ -41,6 +41,32 @@ Timing:
   total_ms=${report.run.timingsMs.total} diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`;
 }
 
+export function renderSearchRun(run: SearchRunJson, command: SearchCommand): string {
+  if (command.json) return JSON.stringify(run, null, 2);
+
+  if (run.stats.modelCalls === 0 && run.matches.length === 0) {
+    return `🧙 stupify 🪄
+No staged changes found.`;
+  }
+
+  const truncation = run.stats.truncated
+    ? "\nWarning: staged diff was truncated to fit the search input budget."
+    : "";
+  if (run.matches.length === 0) {
+    return `🧙 stupify 🪄
+Staged search complete.
+Patterns: ${run.patterns.join(", ")}
+No judgment-offload signals found.${truncation}`;
+  }
+
+  return `🧙 stupify 🪄
+Possible judgment-offload detected in staged changes:
+${run.matches.map((match, index) => `${index + 1}. ${match.patternId}
+   ${match.reason}
+   Proof: ${match.proof}`).join("\n")}
+Hook mode is warn-only.${truncation}`;
+}
+
 export function helpText(): string {
   return `Stupify ${VERSION}
 
@@ -49,10 +75,15 @@ Usage:
   stupify --since "2 weeks ago"
   stupify --commit <commit>
   stupify --commits <count>
+  stupify --staged
+  stupify --mode search --staged
+  stupify hook install|uninstall|status
   stupify experiment <config.json>
   git diff HEAD~1..HEAD | stupify --stdin
 
 Options:
+  --staged             Search staged changes for fast hook warnings.
+  --mode <mode>        search. Search mode currently requires --staged.
   --since <date>        Analyze the net diff from the first commit before this git date to HEAD.
   --commit <commit>     Analyze one commit as a net diff.
   --commits <count>     Analyze the net diff across the last N non-merge commits.
@@ -71,6 +102,8 @@ Options:
                          Max findings-audit input tokens before splitting. Default: 20000.
   --audit-concurrency <n>
                          Parallel findings-audit model calls. Default: 2.
+  --max-search-input-tokens <n>
+                         Max staged-search input tokens before truncating. Default: 12000.
   --checks <ids>        Comma-separated check ids.
   --model <id>          gemma-4-e2b, gemma-4-e4b, gemma-4-26b-a4b, qwen3-4b-magicquant, qwen2.5-coder-1.5b, qwen2.5-coder-7b, or qwen2.5-coder-32b.
   --json                Print JSON only.
