@@ -220,7 +220,6 @@ async function runJsonPrompt(
       temperature,
     }),
     () => runJsonPromptUncached(model, prompt, schema, maxTokens, temperature),
-    process.env.STUPIFY_DEBUG_CACHE === "1",
   );
 }
 
@@ -231,11 +230,6 @@ async function runJsonPromptUncached(
   maxTokens: number,
   temperature: number,
 ): Promise<unknown> {
-  if (process.env.STUPIFY_DEBUG_PROMPT === "1") {
-    console.error("Model prompt:");
-    console.error(prompt);
-  }
-
   const first = await complete(model, prompt, schema, maxTokens, temperature);
   const parsed = parseJson(first);
   if (parsed.ok) return parsed.value;
@@ -284,10 +278,6 @@ async function complete(
 function parseJson(raw: string): Readonly<{ ok: true; value: unknown }> | Readonly<{ ok: false }> {
   try {
     const value = JSON.parse(raw);
-    if (process.env.STUPIFY_DEBUG_MODEL === "1") {
-      console.error("Parsed model JSON:");
-      console.error(JSON.stringify(value, null, 2));
-    }
     return { ok: true, value };
   } catch {
     return { ok: false };
