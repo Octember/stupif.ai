@@ -188,6 +188,7 @@ export type AnalysisRun = Readonly<{
   auditedCandidateCount: number;
   scoutModelCalls: number;
   auditModelCalls: number;
+  warnings: readonly string[];
   timingsMs: Readonly<{
     diff: number;
     modelLoad: number;

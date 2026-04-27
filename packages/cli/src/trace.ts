@@ -7,6 +7,41 @@ export type Tracer = {
   trace<T>(span: string, fn: () => T, fields?: TraceFields): { value: T; ms: number };
 };
 
+export type SpanTraceEvent = Readonly<{
+  name: string;
+  ms: number;
+  count?: number;
+  detail?: string;
+}>;
+
+export type SpanTraceOptions<T> = Readonly<{
+  fields?: TraceFields;
+  count?: (value: T) => number;
+  detail?: (value: T) => string;
+}>;
+
+export function createEventedTracer(args: Readonly<{
+  tracer: Tracer;
+  onEvent: (event: SpanTraceEvent) => void;
+}>) {
+  return {
+    trace: async <T>(
+      span: string,
+      fn: () => Promise<T>,
+      options?: SpanTraceOptions<T>,
+    ): Promise<{ value: T; ms: number }> => {
+      const result = await args.tracer.trace(span, fn, options?.fields);
+      args.onEvent({
+        name: span,
+        ms: result.ms,
+        count: options?.count?.(result.value),
+        detail: options?.detail?.(result.value),
+      });
+      return result;
+    },
+  };
+}
+
 export type CreateTracerOptions = {
   enabled?: boolean;
   writeLine?: (line: string) => void;
