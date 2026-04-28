@@ -3,16 +3,16 @@ import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Stupify - Is your codebase devolving into AI slop?" },
+    { title: "Stupify - Flag suspect AI slop commits" },
     {
       name: "description",
       content:
-        "A local-only CLI for checking whether AI is turning your codebase into slop.",
+        "An open source CLI that reads your commit history and flags suspect AI slop commits.",
     },
   ];
 }
 
-const COMMAND = "npx @stupify/cli --commit HEAD";
+const COMMAND = "npx @stupify/cli@latest";
 
 export default function Home() {
   const [copied, setCopied] = useState(false);
@@ -60,8 +60,14 @@ export default function Home() {
             </button>
           </div>
 
-          <p className="mt-5 max-w-xl text-sm leading-6 text-zinc-600">
-            Privacy first. No code ever leaves your machine
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-300">
+            stupify is a open source CLI that reads your commit history and
+            flags suspect AI slop commits
+          </p>
+
+          <p className="mt-4 max-w-xl text-sm leading-6 text-zinc-600">
+            Stupify uses Gemma, an open source model on your machine, to analyze
+            recent commits. No data ever leaves your machine.
           </p>
         </div>
       </section>
