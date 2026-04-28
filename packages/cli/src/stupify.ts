@@ -1,14 +1,7 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import {
-  auditCandidates,
-  countPromptTokens,
-  findingsAuditRequest,
-  runFindingsAudit,
-  scoutBatch,
-  scoutSemChanges,
-} from "./analysis.ts";
+import { auditCandidates, scoutBatch, scoutSemChanges } from "./analysis.ts";
 import { batchDiff } from "./batcher.ts";
 import { candidateContexts } from "./candidate-context.ts";
 import { enabledChecks } from "./checks.ts";
@@ -24,17 +17,15 @@ import {
   netDiffSince,
 } from "./git.ts";
 import { loadLocalModels, type LocalModel } from "./model.ts";
-import { emptyContextPack, entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
+import { entityContextsFromChanges } from "./repomix-provider.ts";
 import { helpText, renderReport } from "./render.ts";
+import { FindingsAuditSession, debugSemTrace } from "./sem-findings-audit.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
-import { createTracer, trace } from "./trace.ts";
+import { countTraceEvents, createTracer, trace } from "./trace.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
-  AuditReviewResult,
-  AuditReviewStats,
   DebugTarget,
-  FindingsResult,
   NetDiff,
   SemCandidate,
   SemChangeSet,
@@ -111,11 +102,10 @@ async function runRawDiffEngine(
   );
 
   const contexts = candidateContexts(batches, candidatePointers);
-  const auditedContexts = contexts;
   const { value: result, ms: auditMs } = await trace.trace(
     "audit.candidates",
-    () => auditCandidates(auditModel, diff, auditedContexts, checks),
-    { fields: { candidates: auditedContexts.length } },
+    () => auditCandidates(auditModel, diff, contexts, checks),
+    { fields: { candidates: contexts.length } },
   );
 
   return {
@@ -132,9 +122,9 @@ async function runRawDiffEngine(
       batchesScanned: batches.length,
       candidateCount: new Set(candidatePointers).size,
       entitiesScanned: 0,
-      auditedCandidateCount: auditedContexts.length,
+      auditedCandidateCount: contexts.length,
       scoutModelCalls: batches.length,
-      auditModelCalls: auditedContexts.length > 0 ? 1 : 0,
+      auditModelCalls: contexts.length > 0 ? 1 : 0,
       warnings: [],
       timingsMs: {
         diff: diffMs,
@@ -220,18 +210,17 @@ async function runSemEngine(
     );
 
     const auditBatches = chunkSemContexts(contexts, command.auditBatchSize);
+    const findingsAudit = new FindingsAuditSession({
+      model: auditModel,
+      changeSet,
+      checks,
+      command,
+      t,
+      traceEvents,
+    });
     const { value: result, ms: auditMs } = await t.trace(
       "audit.total",
-      () =>
-        findingsAuditBatches(
-          auditModel,
-          changeSet,
-          auditBatches,
-          checks,
-          traceEvents,
-          t,
-          command,
-        ),
+      () => findingsAudit.runBatches(auditBatches),
       {
         count: (v) => v.findings.length,
         detail: (v) =>
@@ -259,7 +248,7 @@ async function runSemEngine(
         candidateCount: candidates.length,
         targetsByCheck: countTargetsByCheck(candidates),
         auditedCandidateCount: contexts.length,
-        scoutModelCalls: traceEvents.filter((event) => event.name === "scout.batch").length,
+        scoutModelCalls: countTraceEvents(traceEvents, "scout.batch"),
         auditModelCalls: result.auditModelCalls,
         timingsMs: {
           diff: diffMs,
@@ -278,151 +267,6 @@ async function runSemEngine(
   } finally {
     await changeSet.cleanup();
   }
-}
-
-async function findingsAuditBatches(
-  model: LocalModel,
-  changeSet: SemChangeSet,
-  batches: readonly (readonly SemContext[])[],
-  checks: ReturnType<typeof enabledChecks>,
-  traceEvents: TraceEvent[],
-  t: ReturnType<typeof createTracer>,
-  command: AnalyzeCommand,
-): Promise<FindingsResult & { stats: AuditReviewStats; auditModelCalls: number }> {
-  const findings = [];
-  const stats = { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 };
-  const limiter = new ConcurrencyLimiter(command.auditConcurrency);
-  for (const [index, batch] of batches.entries()) {
-    const result = await findingsAuditBatch(
-      model,
-      changeSet,
-      batch,
-      checks,
-      traceEvents,
-      command,
-      limiter,
-      `${index + 1}/${batches.length}`,
-    );
-    findings.push(...result.findings);
-    stats.totalTargets += result.stats.totalTargets;
-    stats.finding += result.stats.finding;
-    stats.clean += result.stats.clean;
-    stats.uncertain += result.stats.uncertain;
-    stats.invalid += result.stats.invalid;
-  }
-  return {
-    findings,
-    summary:
-      findings.length === 0
-        ? "No clear judgment-offload signal found."
-        : `${findings.length} finding review${findings.length === 1 ? "" : "s"} accepted.`,
-    stats,
-    auditModelCalls: traceEvents.filter((event) => event.name === "audit.batch").length,
-  };
-}
-
-async function findingsAuditBatch(
-  model: LocalModel,
-  changeSet: SemChangeSet,
-  batch: readonly SemContext[],
-  checks: ReturnType<typeof enabledChecks>,
-  traceEvents: TraceEvent[],
-  command: AnalyzeCommand,
-  limiter: ConcurrencyLimiter,
-  batchLabel: string,
-): Promise<AuditReviewResult> {
-  const { value: pack, ms: contextMs } = await trace.trace(
-    "context.pack",
-    () =>
-      command.auditContext === "none"
-        ? Promise.resolve(emptyContextPack())
-        : repomixContextPack(changeSet.contextCwd, batch, changeSet.changes),
-    { fields: { candidates: batch.length } },
-  );
-  const request = findingsAuditRequest(changeSet, batch, pack, checks, command.auditPrompt);
-  const inputTokens = await countPromptTokens(model, request.prompt);
-  const contextEvent = {
-    name: "context.pack",
-    ms: contextMs,
-    count: pack.filePaths.length,
-    detail: `batch=${batchLabel} input_tokens=${inputTokens} pack_tokens=${pack.totalTokens} chars=${pack.totalCharacters}`,
-  };
-  traceEvents.push(contextEvent);
-  debugSemTrace(command, contextEvent);
-
-  if (inputTokens > command.maxAuditInputTokens) {
-    if (batch.length <= 1) {
-      throw new Error(`Findings audit input has ${inputTokens} tokens, above max ${command.maxAuditInputTokens}.`);
-    }
-    const splitAt = Math.ceil(batch.length / 2);
-    const splitEvent = {
-      name: "audit.split",
-      ms: 0,
-      count: batch.length,
-      detail: `batch=${batchLabel} input_tokens=${inputTokens} max=${command.maxAuditInputTokens}`,
-    };
-    traceEvents.push(splitEvent);
-    debugSemTrace(command, splitEvent);
-    const [left, right] = await Promise.all([
-      findingsAuditBatch(
-        model,
-        changeSet,
-        batch.slice(0, splitAt),
-        checks,
-        traceEvents,
-        command,
-        limiter,
-        `${batchLabel}.1`,
-      ),
-      findingsAuditBatch(
-        model,
-        changeSet,
-        batch.slice(splitAt),
-        checks,
-        traceEvents,
-        command,
-        limiter,
-        `${batchLabel}.2`,
-      ),
-    ]);
-    return combineAuditResults(left, right);
-  }
-
-  const { value: result, ms: auditMs } = await trace.trace(
-    "audit.batch",
-    () => limiter.run(() => runFindingsAudit(model, changeSet, batch, pack, checks, request)),
-    { fields: { candidates: batch.length } },
-  );
-  const event = {
-    name: "audit.batch",
-    ms: auditMs,
-    count: result.findings.length,
-    detail: `batch=${batchLabel} candidates=${batch.length} input_tokens=${inputTokens} targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
-  };
-  traceEvents.push(event);
-  debugSemTrace(command, event);
-  return result;
-}
-
-function combineAuditResults(
-  left: AuditReviewResult,
-  right: AuditReviewResult,
-): AuditReviewResult {
-  const findings = [...left.findings, ...right.findings];
-  return {
-    findings,
-    summary:
-      findings.length === 0
-        ? "No clear judgment-offload signal found."
-        : `${findings.length} finding review${findings.length === 1 ? "" : "s"} accepted.`,
-    stats: {
-      totalTargets: left.stats.totalTargets + right.stats.totalTargets,
-      finding: left.stats.finding + right.stats.finding,
-      clean: left.stats.clean + right.stats.clean,
-      uncertain: left.stats.uncertain + right.stats.uncertain,
-      invalid: left.stats.invalid + right.stats.invalid,
-    },
-  };
 }
 
 function countTargetsByCheck(candidates: readonly SemCandidate[]): Record<string, number> {
@@ -446,26 +290,6 @@ function debugTargetsFromContexts(
     scoutReason: context.reason,
     sourceLabel,
   }));
-}
-
-class ConcurrencyLimiter {
-  private active = 0;
-  private readonly queue: Array<() => void> = [];
-
-  constructor(private readonly max: number) {}
-
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.active >= this.max) {
-      await new Promise<void>((resolve) => this.queue.push(resolve));
-    }
-    this.active += 1;
-    try {
-      return await task();
-    } finally {
-      this.active -= 1;
-      this.queue.shift()?.();
-    }
-  }
 }
 
 async function scoutSemBatches(
@@ -509,48 +333,32 @@ async function scoutSemBatches(
   return candidates;
 }
 
-function debugSemTrace(command: AnalyzeCommand, event: TraceEvent): void {
-  if (!command.debugSem) return;
-  const parts = [`trace ${event.name}`, `${event.ms}ms`];
-  if (event.count !== undefined) parts.push(`count=${event.count}`);
-  if (event.detail) parts.push(event.detail);
-  console.error(parts.join(" "));
+function chunkBySize<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size) as T[]);
+  }
+  return chunks;
 }
 
 function chunkSemChangeSet(changeSet: SemChangeSet): readonly SemChangeSet[] {
-  const chunks: SemChangeSet[] = [];
-  for (
-    let index = 0;
-    index < changeSet.changes.length;
-    index += SEM_SCOUT_CHUNK_SIZE
-  ) {
-    const changes = changeSet.changes.slice(
-      index,
-      index + SEM_SCOUT_CHUNK_SIZE,
-    );
-    chunks.push({
-      ...changeSet,
-      label: `${changeSet.label} batch ${chunks.length + 1}`,
-      changes,
-      summary: {
-        ...changeSet.summary,
-        fileCount: new Set(changes.map((change) => change.filePath)).size,
-        total: changes.length,
-      },
-    });
-  }
-  return chunks;
+  return chunkBySize(changeSet.changes, SEM_SCOUT_CHUNK_SIZE).map((changes, index) => ({
+    ...changeSet,
+    label: `${changeSet.label} batch ${index + 1}`,
+    changes,
+    summary: {
+      ...changeSet.summary,
+      fileCount: new Set(changes.map((change) => change.filePath)).size,
+      total: changes.length,
+    },
+  }));
 }
 
 function chunkSemContexts(
   contexts: readonly SemContext[],
   chunkSize: number,
 ): readonly (readonly SemContext[])[] {
-  const chunks: SemContext[][] = [];
-  for (let index = 0; index < contexts.length; index += chunkSize) {
-    chunks.push(contexts.slice(index, index + chunkSize));
-  }
-  return chunks;
+  return chunkBySize(contexts, chunkSize);
 }
 
 function printRunPlan(
@@ -558,14 +366,12 @@ function printRunPlan(
   diff: NetDiff,
   checkIds: readonly string[],
 ): void {
-  if (command.json) return;
-  console.error("🧙 stupify 🪄");
-  console.error(`Window: ${diff.label}`);
-  console.error(
+  printRunPlanShared(
+    command,
+    diff.label,
     `Diff: ${diff.stats.filesChanged} files changed, ${diff.stats.additions} added, ${diff.stats.deletions} deleted`,
+    checkIds,
   );
-  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
-  console.error(`Checks: ${checkIds.join(", ")}`);
 }
 
 function printSemRunPlan(
@@ -573,12 +379,24 @@ function printSemRunPlan(
   changeSet: SemChangeSet,
   checkIds: readonly string[],
 ): void {
+  printRunPlanShared(
+    command,
+    changeSet.label,
+    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
+    checkIds,
+  );
+}
+
+function printRunPlanShared(
+  command: AnalyzeCommand,
+  windowLabel: string,
+  detailLine: string,
+  checkIds: readonly string[],
+): void {
   if (command.json) return;
   console.error("🧙 stupify 🪄");
-  console.error(`Window: ${changeSet.label}`);
-  console.error(
-    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
-  );
+  console.error(`Window: ${windowLabel}`);
+  console.error(detailLine);
   console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
   console.error(`Checks: ${checkIds.join(", ")}`);
 }
