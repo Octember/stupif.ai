@@ -78,7 +78,7 @@ test("renders matches as slop report fields", () => {
     stats: {
       elapsedMs: 123,
       modelCalls: 1,
-      committers: ["Noah Lindner <noah@example.com>"],
+      committers: ["Noah Lindner <noah@example.com>", "GitHub <noreply@github.com>"],
     },
     matches: [{
       targetId: "t001",
@@ -94,13 +94,41 @@ test("renders matches as slop report fields", () => {
 
   assert.match(output, /AI SLOP DETECTED/);
   assert.match(output, /================/);
+  assert.match(output, /Noah Lindner \(staged\)/);
+  assert.doesNotMatch(output, /GitHub/);
   assert.match(output, /1\. duplicated_schema/);
-  assert.match(output, /Noah Lindner \(staged changes\)/);
   assert.match(output, /Payload repeats the same fields\./);
   assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
   assert.match(output, /src\/foo\.ts::type::FooPayload/);
   assert.match(output, /Duplicated shapes drift\./);
+  assert.match(output, /1 signal\. Warn-only\. Nothing blocked\./);
   assert.doesNotMatch(output, /who:/);
   assert.doesNotMatch(output, /what:/);
   assert.doesNotMatch(output, /where:/);
+});
+
+test("renders since windows as short human labels", () => {
+  const run: SearchRunJson = {
+    schemaVersion: "search.v1",
+    mode: "search",
+    source: "since",
+    model: { id: "gemma-4-e2b" },
+    patterns: [checkId("duplicated_schema")],
+    stats: {
+      elapsedMs: 123,
+      modelCalls: 1,
+      committers: ["Noah Lindner <noah@example.com>"],
+    },
+    matches: [{
+      targetId: "t001",
+      patternId: checkId("duplicated_schema"),
+      checkWhy: "Duplicated shapes drift.",
+      reason: "Payload repeats the same fields.",
+      proof: "src/foo.ts::type::FooPayload",
+    }],
+  };
+
+  const output = renderSearchRun(run, { ...command, kind: "since", source: "since", since: "2 weeks ago" });
+
+  assert.match(output, /Noah Lindner \(last 2 weeks\)/);
 });
