@@ -135,7 +135,7 @@ function stringSnapshot(value: unknown): string | undefined {
 
 function limitSnapshot(value: string): string {
   const lines = value.split(/\r?\n/);
-  const limit = 24;
+  const limit = 12;
   if (lines.length <= limit) return value;
   return `${lines.slice(0, limit).join("\n")}
 [stupify: snapshot shortened after ${limit} lines]`;

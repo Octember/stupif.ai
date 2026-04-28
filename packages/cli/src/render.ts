@@ -30,9 +30,9 @@ ${format.success("No judgment-offload signals found.")}`;
   }
 
   return `${slopHeading()}
-${run.matches.map((match, index) => `${index + 1}. ${format.label(match.patternId)}
 ${committerLabel(run)} (${sourceLabel(command)})
 
+${run.matches.map((match, index) => `${index + 1}. ${format.label(match.patternId)}
 ${match.reason}
 
 \`\`\`
@@ -41,7 +41,7 @@ ${match.snapshot ?? match.proof}
 ${format.muted(match.proof)}
 
 ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n\n")}
-${format.muted("Search mode is warn-only.")}`;
+${format.muted(summaryLine(run))}`;
 }
 
 export function helpText(): string {
@@ -101,18 +101,29 @@ function sourceHint(command: SearchCommand): string {
 }
 
 function sourceLabel(command: SearchCommand): string {
-  if (command.kind === "staged") return "staged changes";
-  if (command.kind === "since") return `since ${command.since}`;
+  if (command.kind === "staged") return "staged";
+  if (command.kind === "since") return sinceLabel(command.since);
   if (command.kind === "commit") return `commit ${command.commit}`;
   if (command.kind === "commits") return `last ${command.count} commits`;
-  return "stdin diff";
+  return "stdin";
 }
 
 function committerLabel(run: SearchRunJson): string {
-  const committers = (run.stats.committers ?? []).filter(Boolean).map(committerDisplayName);
+  const committers = humanCommitters(run.stats.committers ?? []).map(committerDisplayName);
   if (committers.length === 0) return "unknown committer";
   if (committers.length <= 3) return committers.join(", ");
   return `${committers.slice(0, 3).join(", ")} +${committers.length - 3} more`;
+}
+
+function humanCommitters(committers: readonly string[]): readonly string[] {
+  const nonEmpty = committers.filter(Boolean);
+  const humans = nonEmpty.filter((committer) => !isBotCommitter(committer));
+  return humans.length > 0 ? humans : nonEmpty;
+}
+
+function isBotCommitter(value: string): boolean {
+  return /(?:^|<)(?:github|dependabot|renovate)(?:\s|@|>)/i.test(value) ||
+    /(?:noreply@github\.com|bot@)/i.test(value);
 }
 
 function committerDisplayName(value: string): string {
@@ -123,4 +134,21 @@ function slopHeading(): string {
   const heading = "AI SLOP DETECTED";
   return `${format.warn(format.heading(heading))}
 ${format.warn("=".repeat(heading.length))}`;
+}
+
+function sinceLabel(since: string): string {
+  const value = since.trim().toLowerCase();
+  if (value === "yesterday" || value === "1 day ago") return "yesterday";
+  const match = /^(\d+)\s+(day|week|month|year)s?\s+ago$/.exec(value);
+  if (!match) return `since ${since}`;
+
+  const count = Number(match[1]);
+  const unit = match[2];
+  if (count === 1) return `last ${unit}`;
+  return `last ${count} ${unit}s`;
+}
+
+function summaryLine(run: SearchRunJson): string {
+  const noun = run.matches.length === 1 ? "signal" : "signals";
+  return `${run.matches.length} ${noun}. Warn-only. Nothing blocked.`;
 }
