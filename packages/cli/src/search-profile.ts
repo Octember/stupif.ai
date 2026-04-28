@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { defaultChecks, searchChecks } from "./checks.ts";
 import type {
+  AiSlopCheck,
+  AiSlopCheckSearch,
   RepomixSearchConfig,
   SearchProfile,
   SearchProfilePattern,
-  StupifyCheck,
 } from "./types.ts";
 
 export async function loadSearchProfile(profilePath: string | null): Promise<SearchProfile | null> {
@@ -21,7 +22,7 @@ export async function loadSearchProfile(profilePath: string | null): Promise<Sea
 export function effectiveSearchChecks(
   explicitCheckIds: readonly string[] | null,
   profile: SearchProfile | null,
-): readonly StupifyCheck[] {
+): readonly AiSlopCheck[] {
   const checks = explicitCheckIds
     ? searchChecks(explicitCheckIds)
     : profilePatternIds(profile).length > 0
@@ -63,8 +64,8 @@ function profilePatternIds(profile: SearchProfile | null): readonly string[] {
     .map(([id]) => id);
 }
 
-function checksById(ids: readonly string[]): readonly StupifyCheck[] {
-  const byId = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
+function checksById(ids: readonly string[]): readonly AiSlopCheck[] {
+  const byId = new Map<string, AiSlopCheck>(defaultChecks.map((check) => [check.id, check]));
   return ids.map((id) => {
     const check = byId.get(id);
     if (!check) throw new Error(`Unknown check in search profile: ${id}`);
@@ -72,15 +73,22 @@ function checksById(ids: readonly string[]): readonly StupifyCheck[] {
   });
 }
 
-function applyPatternOverride(check: StupifyCheck, override: SearchProfilePattern | undefined): StupifyCheck {
+function applyPatternOverride(check: AiSlopCheck, override: SearchProfilePattern | undefined): AiSlopCheck {
   if (!override) return check;
+  const applyOverride = (search: AiSlopCheckSearch = {}): AiSlopCheckSearch => ({
+    ...search,
+    prompt: override.searchPrompt ?? search.prompt,
+    examples: {
+      match: override.matchExamples ?? search.examples?.match ?? check.examples?.match ?? [],
+      nonMatch: override.nonMatchExamples ?? search.examples?.nonMatch ?? check.examples?.noMatch ?? [],
+    },
+  });
   return {
     ...check,
-    searchPrompt: override.searchPrompt ?? check.searchPrompt,
-    searchExamples: {
-      match: override.matchExamples ?? check.searchExamples?.match ?? check.examples?.match ?? [],
-      nonMatch: override.nonMatchExamples ?? check.searchExamples?.nonMatch ?? check.examples?.noMatch ?? [],
-    },
+    search: applyOverride(check.search),
+    languageOverrides: Object.fromEntries(
+      Object.entries(check.languageOverrides ?? {}).map(([languageId, search]) => [languageId, applyOverride(search)]),
+    ),
   };
 }
 

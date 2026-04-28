@@ -1,10 +1,11 @@
-import type { SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
+import { searchImplForLanguage, sourceLanguageForPath } from "./source-languages.ts";
+import type { AiSlopCheck, SemChangeSet, SemContext, SemContextPack } from "./types.ts";
 
 export function searchPrompt(input: Readonly<{
   changeSet: SemChangeSet;
   contexts: readonly SemContext[];
   pack: SemContextPack;
-  patterns: readonly StupifyCheck[];
+  patterns: readonly AiSlopCheck[];
   includeCounterReason: boolean;
 }>): string {
   return `You are Stupify's local search model.
@@ -62,23 +63,25 @@ REPOMIX CONTEXT (${input.pack.filePaths.length} files, ${input.pack.totalTokens}
 ${input.pack.text || "(none)"}`;
 }
 
-function formatSearchPattern(check: StupifyCheck): string {
+function formatSearchPattern(check: AiSlopCheck, context: SemContext): string {
+  const language = context.filePath ? sourceLanguageForPath(context.filePath) : null;
+  const search = searchImplForLanguage(check, language?.id ?? null);
   return `Pattern: ${check.id} (${check.name})
 Why this matters: ${check.why}
-Question: ${check.searchPrompt ?? check.question}
+Question: ${search.prompt ?? check.question}
 Look for:
-${check.lookFor.map((signal) => `- ${signal}`).join("\n")}
+${(search.lookFor ?? check.lookFor).map((signal) => `- ${signal}`).join("\n")}
 Ignore when:
-${check.ignoreWhen.map((signal) => `- ${signal}`).join("\n")}
+${(search.ignoreWhen ?? check.ignoreWhen).map((signal) => `- ${signal}`).join("\n")}
 Match examples:
-${(check.searchExamples?.match ?? check.examples?.match ?? []).map((example) => `- ${example}`).join("\n")}
+${(search.examples?.match ?? check.examples?.match ?? []).map((example) => `- ${example}`).join("\n")}
 Non-match examples:
-${(check.searchExamples?.nonMatch ?? check.examples?.noMatch ?? []).map((example) => `- ${example}`).join("\n")}`;
+${(search.examples?.nonMatch ?? check.examples?.noMatch ?? []).map((example) => `- ${example}`).join("\n")}`;
 }
 
-function formatSearchTarget(context: SemContext, pattern: StupifyCheck, includeCounterReason: boolean): string {
+function formatSearchTarget(context: SemContext, pattern: AiSlopCheck, includeCounterReason: boolean): string {
   return `TARGET ${context.targetId}
-ASSIGNED ${formatSearchPattern(pattern)}
+ASSIGNED ${formatSearchPattern(pattern, context)}
 SEM TARGET:
 ENTITY ${context.entityId}
 NAME ${context.entityName}
@@ -88,7 +91,7 @@ FILE ${context.filePath ?? "(unknown)"}
 ${includeCounterReason ? `COUNTER_REASON ${context.reason}` : ""}`.trim();
 }
 
-function patternForContext(context: SemContext, patterns: readonly StupifyCheck[]): StupifyCheck {
+function patternForContext(context: SemContext, patterns: readonly AiSlopCheck[]): AiSlopCheck {
   return patterns.find((pattern) => pattern.id === context.checkId) ?? {
     id: context.checkId,
     name: context.checkId,

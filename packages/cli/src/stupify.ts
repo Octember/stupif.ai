@@ -23,7 +23,7 @@ import { semChangeSetForCommand } from "./sem-provider.ts";
 import { createTracer } from "./trace.ts";
 import { createCliUi, type CliUi } from "./ui.ts";
 import type { CounterScoutPlan } from "./counter-scout.ts";
-import type { SearchCommand, SearchMatch, SearchProfile, SearchRunJson, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
+import type { AiSlopCheck, SearchCommand, SearchMatch, SearchProfile, SearchRunJson, SemContext, SemContextPack } from "./types.ts";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -334,7 +334,7 @@ function dedupeMatches<T extends { targetId: string; patternId: string; proof: s
   });
 }
 
-function withCheckWhy(matches: readonly SearchMatch[], checks: readonly StupifyCheck[]): readonly SearchMatch[] {
+function withCheckWhy(matches: readonly SearchMatch[], checks: readonly AiSlopCheck[]): readonly SearchMatch[] {
   const checksById = new Map(checks.map((check) => [check.id, check]));
   return matches.map((match) => ({
     ...match,
@@ -373,7 +373,7 @@ async function buildSearchBatches(input: Readonly<{
   changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
   contexts: readonly SemContext[];
   initialPack: SemContextPack;
-  checks: readonly StupifyCheck[];
+  checks: readonly AiSlopCheck[];
   profile: SearchProfile | null;
   includeCounterReasonInPrompt: boolean;
   maxSearchInputTokens: number;
@@ -438,7 +438,7 @@ async function buildSearchBatches(input: Readonly<{
 function makeSearchBatch(
   input: Readonly<{
     changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
-    checks: readonly StupifyCheck[];
+    checks: readonly AiSlopCheck[];
     profile: SearchProfile | null;
     includeCounterReasonInPrompt: boolean;
   }>,
@@ -465,7 +465,7 @@ async function makeSearchBatchWithPack(
   input: Readonly<{
     command: SearchCommand;
     changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
-    checks: readonly StupifyCheck[];
+    checks: readonly AiSlopCheck[];
     profile: SearchProfile | null;
     includeCounterReasonInPrompt: boolean;
     baseRepomixConfig: Parameters<typeof repomixContextPack>[3];
@@ -482,7 +482,7 @@ function buildSearchRequest(
   changeSet: Parameters<typeof searchRequest>[0]["changeSet"],
   contexts: Parameters<typeof searchRequest>[0]["contexts"],
   pack: SemContextPack,
-  patterns: readonly StupifyCheck[],
+  patterns: readonly AiSlopCheck[],
   profile: SearchProfile | null,
   includeCounterReasonInPrompt: boolean,
 ) {

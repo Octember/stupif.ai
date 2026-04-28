@@ -1,4 +1,5 @@
-import type { CheckId, SemCandidate, SemChange, SemChangeSet, StupifyCheck } from "./types.ts";
+import type { AiSlopCheck, CheckId, SemCandidate, SemChange, SemChangeSet } from "./types.ts";
+import { checkAppliesToLanguage, searchImplForLanguage, sourceLanguageForPath } from "./source-languages.ts";
 
 type Signal = Readonly<{
   checkId: CheckId;
@@ -23,7 +24,7 @@ export type CounterScoutPlan = Readonly<{
 
 export function counterScoutTargets(
   changeSet: SemChangeSet,
-  checks: readonly StupifyCheck[],
+  checks: readonly AiSlopCheck[],
   maxTargets: number,
 ): readonly SemCandidate[] {
   return counterScoutPlan(changeSet, checks, maxTargets).targets;
@@ -31,7 +32,7 @@ export function counterScoutTargets(
 
 export function counterScoutPlan(
   changeSet: SemChangeSet,
-  checks: readonly StupifyCheck[],
+  checks: readonly AiSlopCheck[],
   maxTargets: number,
 ): CounterScoutPlan {
   const buckets = runSignalCounters(changeSet, checks);
@@ -62,12 +63,12 @@ export function counterScoutPlan(
 
 export function runSignalCounters(
   changeSet: SemChangeSet,
-  checks: readonly StupifyCheck[],
+  checks: readonly AiSlopCheck[],
 ): readonly SignalBucket[] {
   return checks
     .map((check) => {
       const signals = changeSet.changes.flatMap((change): readonly Signal[] => {
-        const reasonCode = reasonForCheck(check.id, change);
+        const reasonCode = reasonForCheck(check, change);
         return reasonCode ? [{ checkId: check.id, entityId: change.entityId, reasonCode }] : [];
       });
       return {
@@ -79,18 +80,25 @@ export function runSignalCounters(
     .filter((bucket) => bucket.total > 0);
 }
 
-function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
-  if (!isSearchableSourceChange(change)) return null;
+function reasonForCheck(check: AiSlopCheck, change: SemChange): string | null {
+  const language = sourceLanguageForPath(change.filePath);
+  if (!language || !checkAppliesToLanguage(check, language.id)) return null;
+  const search = searchImplForLanguage(check, language.id);
+  const content = change.afterContent ?? "";
+  if (search.counter?.ignoreEntityKindPattern?.test(change.entityType)) return null;
+  if (search.counter?.ignoreEntityNamePattern?.test(change.entityName)) return null;
+  if (search.counter?.ignoreContentPattern?.test(content)) return null;
 
-  const haystack = `${change.entityName}\n${change.entityType}\n${change.filePath}\n${change.afterContent ?? ""}`.toLowerCase();
+  const haystack = `${change.entityName}\n${change.entityType}\n${change.filePath}\n${content}`.toLowerCase();
+  const entityWords = words(change.entityName);
   const changed = change.changeType === "added" || change.changeType === "modified";
   if (!changed) return null;
 
-  switch (checkId as string) {
+  switch (check.id as string) {
     case "duplicated_schema":
       return isDuplicatedSchemaCandidate(change) ? "local_schemaish_copy" : null;
     case "unnecessary_complexity":
-      return /\b(helper|wrapper|service|provider|manager|factory|adapter|resolver|coordinator)\b/i.test(change.entityName)
+      return /\b(helper|wrapper|provider|manager|factory|adapter|resolver|coordinator|orchestrator)\b/i.test(entityWords)
         ? "new_abstraction_name"
         : null;
     case "fake_precision_windowing":
@@ -114,7 +122,7 @@ function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
         ? "lint_or_type_bypass_text"
         : null;
     case "inconsistent_patterns":
-      return /\b(manager|factory|provider|adapter|orchestrator|coordinator)\b/i.test(change.entityName)
+      return /\b(manager|factory|provider|adapter|orchestrator|coordinator)\b/i.test(entityWords)
         ? "pattern_abstraction_name"
         : null;
     case "reinvented_utils":
@@ -122,7 +130,7 @@ function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
         ? "generic_utility_name"
         : null;
     case "operator_style_mismatch":
-      return /\b(manager|factory|provider|enterprise|orchestrator)\b/i.test(haystack)
+      return /\b(manager|factory|provider|enterprise|orchestrator)\b/i.test(`${entityWords}\n${haystack}`)
         ? "style_smell_terms"
         : null;
     default:
@@ -164,15 +172,6 @@ function reinventedUtilitySignal(change: SemChange): boolean {
   const content = change.afterContent ?? "";
   if (/currency|invoice|refund|subscription|tier|domain/i.test(`${name}\n${content}`)) return false;
   return true;
-}
-
-function isSearchableSourceChange(change: SemChange): boolean {
-  const filePath = change.filePath.toLowerCase();
-  if (/(^|\/)(bun|package-lock|pnpm-lock|yarn)\.lock$/.test(filePath)) return false;
-  if (/(^|\/)(dist|build|coverage|generated|vendor|fixtures?|snapshots?)(\/|$)/.test(filePath)) return false;
-  if (/\.(md|mdx|txt|json|jsonc|ya?ml|toml|lock|csv|svg|png|jpe?g|gif|webp)$/i.test(filePath)) return false;
-  if (/\.(test|spec|fixture)\.[cm]?[jt]sx?$/i.test(filePath)) return false;
-  return /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/i.test(filePath);
 }
 
 function commentLines(value: string | null): number {

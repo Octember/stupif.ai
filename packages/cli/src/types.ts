@@ -16,6 +16,19 @@ export function checkId(value: string): CheckId {
 export type SearchMode = "warn" | "off";
 export type HookAction = "install" | "uninstall" | "status";
 export type SearchSource = "since" | "stdin" | "commit" | "commits" | "staged";
+export type SourceLanguageId =
+  | "typescript"
+  | "javascript"
+  | "python"
+  | "rust"
+  | "go"
+  | "ruby"
+  | "java"
+  | "kotlin"
+  | "swift"
+  | "csharp"
+  | "php"
+  | "elixir";
 
 type SearchOptions = Readonly<{
   checkIds: readonly string[] | null;
@@ -47,7 +60,23 @@ export type SearchCommand = Exclude<
   | Readonly<{ kind: "bench-search"; configPath: string }>
 >;
 
-export type StupifyCheck = Readonly<{
+export type AiSlopCheckSearch = Readonly<{
+  enabled?: boolean;
+  prompt?: string;
+  lookFor?: readonly string[];
+  ignoreWhen?: readonly string[];
+  counter?: Readonly<{
+    ignoreEntityKindPattern?: RegExp;
+    ignoreEntityNamePattern?: RegExp;
+    ignoreContentPattern?: RegExp;
+  }>;
+  examples?: Readonly<{
+    match?: readonly string[];
+    nonMatch?: readonly string[];
+  }>;
+}>;
+
+export type AiSlopCheck = Readonly<{
   id: CheckId;
   name: string;
   question: string;
@@ -55,12 +84,9 @@ export type StupifyCheck = Readonly<{
   lookFor: readonly string[];
   ignoreWhen: readonly string[];
   enabledByDefault?: boolean;
-  hookMode?: SearchMode;
-  searchPrompt?: string;
-  searchExamples?: Readonly<{
-    match: readonly string[];
-    nonMatch: readonly string[];
-  }>;
+  searchDefault?: boolean;
+  search?: AiSlopCheckSearch;
+  languageOverrides?: Partial<Record<SourceLanguageId, AiSlopCheckSearch>>;
   examples?: Readonly<{
     match?: readonly string[];
     noMatch?: readonly string[];

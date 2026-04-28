@@ -1,6 +1,6 @@
-import { checkId, type StupifyCheck } from "./types.ts";
+import { checkId, type AiSlopCheck } from "./types.ts";
 
-export const defaultChecks: readonly StupifyCheck[] = [
+export const defaultChecks: readonly AiSlopCheck[] = [
   {
     id: checkId("duplicated_schema"),
     name: "Duplicated schema",
@@ -14,16 +14,34 @@ export const defaultChecks: readonly StupifyCheck[] = [
       "test fixture, mock, or intentional external contract",
       "public API DTO filters, omits, protects, renames, or versions fields",
     ],
-    hookMode: "warn",
-    searchPrompt: "Find only local/private payload or schema shapes that clearly copy another local shape one-for-one without creating a boundary. Do not match ordinary Input/Output/Request/Response types by name alone, public DTOs, external contracts, client types, or types that omit/protect private fields.",
-    searchExamples: {
-      match: [
-        "LocalUserPayload repeats User fields and maps id/email/displayName one-for-one.",
-      ],
-      nonMatch: [
-        "PublicWebhookDto omits privateNotes from InternalJob.",
-        "A client type describes an external dependency boundary.",
-      ],
+    searchDefault: true,
+    search: { enabled: false },
+    languageOverrides: {
+      typescript: {
+        enabled: true,
+        prompt: "Find only local/private payload or schema shapes that clearly copy another local shape one-for-one without creating a boundary. Do not match ordinary Input/Output/Request/Response types by name alone, public DTOs, external contracts, client types, or types that omit/protect private fields.",
+        examples: {
+          match: [
+            "LocalUserPayload repeats User fields and maps id/email/displayName one-for-one.",
+          ],
+          nonMatch: [
+            "PublicWebhookDto omits privateNotes from InternalJob.",
+            "A client type describes an external dependency boundary.",
+          ],
+        },
+      },
+      javascript: {
+        enabled: true,
+        prompt: "Find only local/private payload or schema object shapes that clearly copy another local shape one-for-one without creating a boundary. Do not match public DTOs, external contracts, client types, or shapes that omit/protect private fields.",
+        examples: {
+          match: [
+            "localUserPayload repeats user.id/user.email/user.displayName one-for-one.",
+          ],
+          nonMatch: [
+            "Public webhook payload omits private notes from an internal job.",
+          ],
+        },
+      },
     },
   },
   {
@@ -32,15 +50,17 @@ export const defaultChecks: readonly StupifyCheck[] = [
     question: "Did the change add structure without buying clarity?",
     why: "Extra indirection can hide simple decisions and make the code feel more designed than understood.",
     lookFor: [
-      "helper, wrapper, service, layer, or extra file around simple logic without reuse",
+      "helper, wrapper, manager, adapter, resolver, orchestrator, or extra file around simple logic without reuse",
     ],
     ignoreWhen: [
       "isolates dependency, removes duplication, or improves testability",
     ],
-    hookMode: "warn",
-    searchPrompt: `Find staged changes where a locally simple decision is made harder to understand by new indirection.
+    searchDefault: true,
+    search: {
+      enabled: true,
+      prompt: `Find staged changes where a locally simple decision is made harder to understand by new indirection.
 Only match when the staged diff clearly shows:
-- a new named helper, wrapper, service, adapter, boundary, or abstraction
+- a new named helper, wrapper, manager, adapter, resolver, orchestrator, boundary, or abstraction
 - and the surrounding change still appears locally simple
 - and the new structure makes the decision harder to see
 Do not match:
@@ -53,18 +73,31 @@ Do not match:
 - refactors that make ownership clearer
 - changes where the payoff is unclear from the diff
 Prefer no match over a weak match.`,
-    searchExamples: {
-      match: [
-        "A small inline operation becomes a helper/service/wrapper with one obvious caller.",
-        "A straightforward flow is split across files in a way that hides the decision.",
-        "A new abstraction appears before there is evidence it buys clarity, correctness, reuse, or isolation.",
-      ],
-      nonMatch: [
-        "A real external dependency boundary is isolated.",
-        "A security/auth boundary becomes clearer.",
-        "A refactor removes larger complexity elsewhere.",
-        "Framework-required structure is added.",
-      ],
+      counter: {
+        ignoreEntityKindPattern: /^(field|interface|type)$/i,
+      },
+      examples: {
+        match: [
+          "A small inline operation becomes a helper/service/wrapper with one obvious caller.",
+          "A straightforward flow is split across files in a way that hides the decision.",
+          "A new abstraction appears before there is evidence it buys clarity, correctness, reuse, or isolation.",
+        ],
+        nonMatch: [
+          "A real external dependency boundary is isolated.",
+          "A security/auth boundary becomes clearer.",
+          "A refactor removes larger complexity elsewhere.",
+          "Framework-required structure is added.",
+        ],
+      },
+    },
+    languageOverrides: {
+      rust: {
+        counter: {
+          ignoreEntityKindPattern: /^(field|interface|type)$/i,
+          ignoreEntityNamePattern: /^test_/i,
+          ignoreContentPattern: /#\s*\[\s*(tokio::)?test\s*\]/i,
+        },
+      },
     },
   },
   {
@@ -79,6 +112,7 @@ Prefer no match over a weak match.`,
       "simple fixed cap or chunking",
       "external API requirement",
     ],
+    search: { enabled: true },
   },
   {
     id: checkId("coauthored_slop"),
@@ -91,6 +125,7 @@ Prefer no match over a weak match.`,
     ignoreWhen: [
       "normal Co-authored-by trailer in the commit body",
     ],
+    search: { enabled: true },
   },
   {
     id: checkId("mega_file"),
@@ -103,6 +138,7 @@ Prefer no match over a weak match.`,
     ignoreWhen: [
       "config, lock, generated, fixture, or vendored file",
     ],
+    search: { enabled: true },
   },
   {
     id: checkId("over_commenting"),
@@ -115,21 +151,34 @@ Prefer no match over a weak match.`,
     ignoreWhen: [
       "comment explains intent, constraint, workaround, or public API behavior",
     ],
-    hookMode: "warn",
-    searchPrompt: "Find staged changes where comments appear to substitute for judgment rather than clarify it.",
-    searchExamples: {
-      match: [
-        "New comments narrate obvious code instead of explaining tradeoffs.",
-        "A simple change gains multiple generic comments that restate control flow.",
-        "Comments make the code look more deliberate without adding useful reasoning.",
-      ],
-      nonMatch: [
-        "Comments explain a real domain constraint.",
-        "Comments document an external API quirk.",
-        "Comments clarify a surprising edge case.",
-        "Comments are sparse and specific.",
-        "Comments explain provider, finance, reconciliation, timezone, or ledger behavior.",
-      ],
+    searchDefault: true,
+    search: {
+      enabled: true,
+      prompt: "Find staged changes where comments appear to substitute for judgment rather than clarify it.",
+      examples: {
+        match: [
+          "New comments narrate obvious code instead of explaining tradeoffs.",
+          "A simple change gains multiple generic comments that restate control flow.",
+          "Comments make the code look more deliberate without adding useful reasoning.",
+        ],
+        nonMatch: [
+          "Comments explain a real domain constraint.",
+          "Comments document an external API quirk.",
+          "Comments clarify a surprising edge case.",
+          "Comments are sparse and specific.",
+          "Comments explain provider, finance, reconciliation, timezone, or ledger behavior.",
+        ],
+      },
+    },
+    languageOverrides: {
+      python: { enabled: false },
+      ruby: { enabled: false },
+      rust: {
+        counter: {
+          ignoreEntityNamePattern: /^test_/i,
+          ignoreContentPattern: /#\s*\[\s*(tokio::)?test\s*\]/i,
+        },
+      },
     },
   },
   {
@@ -145,15 +194,33 @@ Prefer no match over a weak match.`,
       "type-level test",
       "generated file convention",
     ],
-    hookMode: "warn",
-    searchPrompt: "Find only broad lint/type bypasses that hide useful feedback. Match bare @ts-ignore, bare @ts-expect-error, broad casts, any, or eslint/biome suppressions without a concrete inline reason. Do not match targeted suppressions that include a reason for a known framework, test, mock, or external-library limitation.",
-    searchExamples: {
-      match: [
-        "A bare // @ts-ignore hides property access on unknown input.",
-      ],
-      nonMatch: [
-        "// @ts-expect-error explains a known external library typing gap.",
-      ],
+    searchDefault: true,
+    search: { enabled: false },
+    languageOverrides: {
+      typescript: {
+        enabled: true,
+        prompt: "Find only broad lint/type bypasses that hide useful feedback. Match bare @ts-ignore, bare @ts-expect-error, broad casts, any, or eslint/biome suppressions without a concrete inline reason. Do not match targeted suppressions that include a reason for a known framework, test, mock, or external-library limitation.",
+        examples: {
+          match: [
+            "A bare // @ts-ignore hides property access on unknown input.",
+          ],
+          nonMatch: [
+            "// @ts-expect-error explains a known external library typing gap.",
+          ],
+        },
+      },
+      javascript: {
+        enabled: true,
+        prompt: "Find only broad lint bypasses that hide useful feedback. Match bare eslint-disable or biome-ignore comments without a concrete inline reason. Do not match targeted suppressions that explain a known framework, test, mock, or external-library limitation.",
+        examples: {
+          match: [
+            "A bare // eslint-disable-next-line hides an unsafe access.",
+          ],
+          nonMatch: [
+            "// eslint-disable-next-line no-console -- CLI intentionally writes progress.",
+          ],
+        },
+      },
     },
   },
   {
@@ -168,6 +235,7 @@ Prefer no match over a weak match.`,
       "external API requires it",
       "change follows a newer local convention",
     ],
+    search: { enabled: true },
   },
   {
     id: checkId("reinvented_utils"),
@@ -182,16 +250,19 @@ Prefer no match over a weak match.`,
       "new helper is clearer as a tiny private expression",
       "helper is domain-specific or used by multiple local call sites",
     ],
-    hookMode: "warn",
-    searchPrompt: "Find only tiny generic utility functions that recreate common helpers such as clamp, debounce, throttle, slugify, sort, pick, omit, uniq, or shuffle without domain-specific behavior. Do not match group/resolve/parse/format helpers, domain formatting, feature constants, or helpers with multiple obvious call sites.",
-    searchExamples: {
-      match: [
-        "clampValue returns min, max, or value.",
-      ],
-      nonMatch: [
-        "formatCurrencyHelper is used by invoice and refund labels.",
-        "Subscription tier constants encode domain configuration.",
-      ],
+    searchDefault: true,
+    search: {
+      enabled: true,
+      prompt: "Find only tiny generic utility functions that recreate common helpers such as clamp, debounce, throttle, slugify, sort, pick, omit, uniq, or shuffle without domain-specific behavior. Do not match group/resolve/parse/format helpers, domain formatting, feature constants, or helpers with multiple obvious call sites.",
+      examples: {
+        match: [
+          "clampValue returns min, max, or value.",
+        ],
+        nonMatch: [
+          "formatCurrencyHelper is used by invoice and refund labels.",
+          "Subscription tier constants encode domain configuration.",
+        ],
+      },
     },
   },
   {
@@ -206,23 +277,24 @@ Prefer no match over a weak match.`,
       "generated, vendored, framework-required, or newer established local style",
     ],
     enabledByDefault: false,
+    search: { enabled: true },
   },
 ] as const;
 
-export function enabledChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
+export function enabledChecks(checkIds: readonly string[] | null): readonly AiSlopCheck[] {
   if (!checkIds) return defaultChecks.filter((check) => check.enabledByDefault !== false);
 
   return checksById(checkIds);
 }
 
-export function searchChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
-  if (!checkIds) return defaultChecks.filter((check) => check.hookMode === "warn");
+export function searchChecks(checkIds: readonly string[] | null): readonly AiSlopCheck[] {
+  if (!checkIds) return defaultChecks.filter((check) => check.searchDefault === true);
 
   return checksById(checkIds);
 }
 
-function checksById(checkIds: readonly string[]): readonly StupifyCheck[] {
-  const checksById = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
+function checksById(checkIds: readonly string[]): readonly AiSlopCheck[] {
+  const checksById = new Map<string, AiSlopCheck>(defaultChecks.map((check) => [check.id, check]));
   return checkIds.map((id) => {
     const check = checksById.get(id);
     if (!check) throw new Error(`Unknown check: ${id}`);
