@@ -59,11 +59,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 }
 
 export async function runSearchCommand(command: SearchCommand, startedAt: number, ui = createCliUi({ quiet: command.json })): Promise<SearchRunJson> {
+  const activeSpans = new Map<string, ReturnType<CliUi["spinner"]>>();
   const t = createTracer({
     writeLine: () => undefined,
     onEvent: (event) => {
       if (command.json) return;
-      ui.step(formatStep(event.name, event.ms, event.count, event.detail));
+      if (event.phase === "start") {
+        activeSpans.set(event.name, ui.spinner(formatStartStep(event.name, event.detail)));
+        return;
+      }
+
+      const active = activeSpans.get(event.name);
+      activeSpans.delete(event.name);
+      const message = event.phase === "error"
+        ? formatErrorStep(event.name, event.ms)
+        : formatStep(event.name, event.ms, event.count, event.detail);
+      if (!active) {
+        if (event.phase === "error") ui.error(message);
+        else ui.step(message);
+        return;
+      }
+      if (event.phase === "error") active.error(message);
+      else active.stop(message);
     },
   });
 
@@ -162,17 +179,27 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
     const pack = profile?.context === "sem" || searchContexts.length === contexts.length
       ? initialPack
       : await repomixContextPack(changeSet.contextCwd, searchContexts, changeSet.changes, baseRepomixConfig);
-    const batches = await buildSearchBatches({
-      command,
-      changeSet,
-      contexts: searchContexts,
-      initialPack: pack,
-      checks,
-      profile,
-      includeCounterReasonInPrompt: command.includeCounterReasonInPrompt,
-      maxSearchInputTokens,
-      baseRepomixConfig,
-    });
+    const { value: batches } = await t.trace(
+      "search.batches",
+      () => buildSearchBatches({
+        command,
+        changeSet,
+        contexts: searchContexts,
+        initialPack: pack,
+        checks,
+        profile,
+        includeCounterReasonInPrompt: command.includeCounterReasonInPrompt,
+        maxSearchInputTokens,
+        baseRepomixConfig,
+      }),
+      {
+        startDetail: `${searchContexts.length} targets`,
+        count: (result) => result.batches.length,
+        detail: (result) => result.wasSplit
+          ? `${result.skippedTargets} oversized targets skipped`
+          : `${result.estimatedInputTokens} estimated tokens`,
+      },
+    );
 
     if (batches.batches.length === 0) {
       return {
@@ -222,7 +249,14 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
     let inputTokens = 0;
     let exactSkippedTargets = batches.skippedTargets;
     for (const batch of batches.batches) {
-      const batchInputTokens = await countPromptTokens(model, batch.request.prompt);
+      const { value: batchInputTokens } = await t.trace(
+        "prompt.tokens",
+        () => countPromptTokens(model, batch.request.prompt),
+        {
+          startDetail: `${batch.contexts.length} targets`,
+          count: (tokens) => tokens,
+        },
+      );
       inputTokens += batchInputTokens;
       if (batchInputTokens > maxSearchInputTokens) {
         exactSkippedTargets += batch.contexts.length;
@@ -234,7 +268,10 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
       const { value } = await t.trace(
         "search.model",
         () => runSearch(model, batch.request),
-        { count: (v) => v.length },
+        {
+          startDetail: `${batch.contexts.length} targets`,
+          count: (v) => v.length,
+        },
       );
       modelCalls += 1;
       matches.push(...withCheckWhy(value, checks));
@@ -441,11 +478,31 @@ function printRunPlan(
   );
 }
 
+function formatStartStep(name: string, detail?: string): string {
+  if (name === "entity.diff") return "Diff: running sem over the selected git range";
+  if (name === "context.pack") return "Context: packing selected target files with Repomix";
+  if (name === "search.batches") return `Search: preparing token-bounded model batches${detail ? ` for ${detail}` : ""}`;
+  if (name === "prompt.tokens") return `Tokens: counting search prompt${detail ? ` for ${detail}` : ""}`;
+  if (name === "search.model") return `Model: searching selected target/check pairs${detail ? ` (${detail})` : ""}`;
+  return `${name}: working`;
+}
+
 function formatStep(name: string, ms: number, count?: number, detail?: string): string {
   if (name === "entity.diff") return `Diff: ${detail ?? "changed files"}, ${count ?? 0} changed entities (${ms}ms)`;
   if (name === "context.pack") return `Context: ${count ?? 0} files, ${detail ?? "0 tokens"} (${ms}ms)`;
+  if (name === "search.batches") return `Search: ${count ?? 0} model batches, ${detail ?? "0 estimated tokens"} (${ms}ms)`;
+  if (name === "prompt.tokens") return `Tokens: ${count ?? 0} prompt tokens (${ms}ms)`;
   if (name === "search.model") return `Model: ${count ?? 0} matches (${ms}ms)`;
   return `${name}: ${ms}ms`;
+}
+
+function formatErrorStep(name: string, ms: number): string {
+  if (name === "entity.diff") return `Diff failed after ${ms}ms`;
+  if (name === "context.pack") return `Context packing failed after ${ms}ms`;
+  if (name === "search.batches") return `Search batch preparation failed after ${ms}ms`;
+  if (name === "prompt.tokens") return `Token counting failed after ${ms}ms`;
+  if (name === "search.model") return `Model search failed after ${ms}ms`;
+  return `${name} failed after ${ms}ms`;
 }
 
 function scoutPlanLine(plan: CounterScoutPlan, entitiesScanned: number): string {

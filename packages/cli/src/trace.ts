@@ -9,6 +9,7 @@ export type Tracer = {
 
 export type SpanTraceEvent = Readonly<{
   name: string;
+  phase: "start" | "end" | "error";
   ms: number;
   count?: number;
   detail?: string;
@@ -16,6 +17,7 @@ export type SpanTraceEvent = Readonly<{
 
 export type SpanTraceOptions<T> = Readonly<{
   fields?: TraceFields;
+  startDetail?: string | (() => string);
   count?: (value: T) => number;
   detail?: (value: T) => string;
 }>;
@@ -53,6 +55,12 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
     options?: SpanTraceOptions<T>,
   ): Promise<{ value: T; ms: number }> | { value: T; ms: number } {
     const startedAtMs = nowMs();
+    onEvent?.({
+      name: span,
+      phase: "start",
+      ms: 0,
+      detail: typeof options?.startDetail === "function" ? options.startDetail() : options?.startDetail,
+    });
     try {
       const out = fn();
       if (isPromiseLike(out)) {
@@ -63,12 +71,21 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
             durationMs = nowMs() - startedAtMs;
             const event: SpanTraceEvent = {
               name: span,
+              phase: "end",
               ms: Math.round(durationMs),
               count: options?.count?.(value),
               detail: options?.detail?.(value),
             };
             onEvent?.(event);
             return { value, ms: event.ms };
+          } catch (error) {
+            durationMs = nowMs() - startedAtMs;
+            onEvent?.({
+              name: span,
+              phase: "error",
+              ms: Math.round(durationMs),
+            });
+            throw error;
           } finally {
             durationMs ??= nowMs() - startedAtMs;
             emit(span, durationMs, options?.fields);
@@ -80,6 +97,7 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
       emit(span, durationMs, options?.fields);
       const event: SpanTraceEvent = {
         name: span,
+        phase: "end",
         ms: Math.round(durationMs),
         count: options?.count?.(out),
         detail: options?.detail?.(out),
@@ -88,6 +106,11 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
       return { value: out, ms: event.ms };
     } catch (error) {
       const durationMs = nowMs() - startedAtMs;
+      onEvent?.({
+        name: span,
+        phase: "error",
+        ms: Math.round(durationMs),
+      });
       emit(span, durationMs, options?.fields);
       throw error;
     }
