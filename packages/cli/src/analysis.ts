@@ -1,7 +1,7 @@
 import { cachedJson, fingerprint } from "./cache.ts";
 import type { LocalModel } from "./model.ts";
 import { searchPrompt } from "./prompts.ts";
-import type { SearchMatch, SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
+import type { AiSlopCheck, SearchMatch, SemChangeSet, SemContext, SemContextPack } from "./types.ts";
 import { diagnostic, diagnosticError } from "./ui.ts";
 
 export async function runSearch(
@@ -22,7 +22,7 @@ export function searchRequest(input: Readonly<{
   changeSet: SemChangeSet;
   contexts: readonly SemContext[];
   pack: SemContextPack;
-  patterns: readonly StupifyCheck[];
+  patterns: readonly AiSlopCheck[];
   includeCounterReasonInPrompt?: boolean;
 }>): SearchRequest {
   return {
