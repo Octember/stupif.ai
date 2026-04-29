@@ -66,13 +66,9 @@ flowchart LR
   Matches["matches<br/>with proof pointers"]
 
   Diff --> Sem --> Scout --> Context --> Model --> Matches
-
-  Context -. "skip if too large" .-> Skip["no truncated reviews"]
-  Model -. "localhost only" .-> Privacy["no hosted LLM calls<br/>no uploads"]
 ```
 
-Stupify emits search `matches`, not audit findings. If the local search input is
-too large, it skips instead of reviewing truncated context.
+Stupify emits search `matches`, not audit findings.
 
 The default search registry enables the checks that currently pass the local
 hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
