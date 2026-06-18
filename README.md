@@ -35,38 +35,40 @@ It's a finder, not a gatekeeper — it posts a comment, it doesn't block your me
 
 ## Quickstart
 
-Built for [**exe.dev**](https://exe.dev): on a VM there's nothing to authenticate — Codex runs on the exe-llm
-gateway (no API key) and `gh` runs on your GitHub integration (no token). One command — Bun fetches and runs
-the wizard, no clone, no install:
+Stupify runs on a little always-on box, so it rides [**exe.dev**](https://exe.dev) — where spinning one up is
+a single `ssh exe.dev`, Codex already talks to the exe-llm gateway (no API key), and `gh` talks to your GitHub
+integration (no token). **From your laptop, one command provisions the whole thing:**
 
 ```bash
 bunx github:Octember/stupif.ai
 ```
 
-The wizard checks your tools, **auto-detects your repo**, asks for your integration host, shows the plan, and
-installs the cron sweep — then:
+That's it. It detects your repo, finds (or creates) your GitHub integration, and spins up an exe.dev VM that
+installs itself and starts reviewing — you never SSH anywhere:
 
 ```
-┌  stupify  — sounds dumb, reviews sharp
-◇  bun, gh, codex, git, flock — all here
-◇  Review acme/widgets? (detected from git remote) Yes
-◇  installed → ~/.stupify
-└  stupify is watching acme/widgets 👀
+┌  stupify  — provision a reviewer on exe.dev
+◇  exe.dev ready — you@example.com
+◇  using integration acme-widgets
+◇  VM stupify-acme-widgets created
+└  stupify is provisioned for acme/widgets 👀
 ```
+
+**First time on exe.dev?** Two one-time steps, both dead-simple: run `ssh exe.dev` once to onboard, and link
+your GitHub at [exe.dev/integrations](https://exe.dev/integrations). Then the command above does everything.
 
 Then **give it your taste** — copy this repo's [`.review/`](.review) into the repo you're reviewing and point
 `CORPUS.md` at *your* best files (5 minutes, highest leverage). Label any PR `codex-review` (or drop in
 [`.github/workflows/autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands within ~60s.
 
 ```bash
-bunx github:Octember/stupif.ai              # the setup wizard (or pass <owner/repo>)
-bunx github:Octember/stupif.ai run --dry    # preview a sweep without posting
-bunx github:Octember/stupif.ai --help
+bunx github:Octember/stupif.ai                 # provision a reviewer VM for the current repo
+bunx github:Octember/stupif.ai <owner/repo>    # …for a specific repo
+ssh exe.dev rm stupify-<owner>-<repo>          # tear it down
 ```
 
-Prefer a real command? `bun add -g github:Octember/stupif.ai` gives you `stupify` on your PATH.
-Not on exe.dev? It runs anywhere with `bun`, `gh`, `codex`, `git`, `flock` (Linux) and `cron` — `gh auth login`
-+ a working `codex` auth, then the same wizard (leave the integration host blank).
+**Don't want a VM?** `bunx github:Octember/stupif.ai setup` installs it on the current machine instead (needs
+`bun`, `gh`, `codex`, `git`, `flock` on Linux + `cron`, with `gh auth login` + a working `codex` auth).
 
 ---
 
@@ -81,8 +83,10 @@ cron (~60s)  →  review-sweep.ts  →  codex exec  →  gh pr comment
                    └─ codex reads .review/{REVIEW-PROMPT,RUBRIC,CORPUS}.md + the diff, writes, posts
 ```
 
-The **CLI** (`src/cli.ts`, Bun + [@clack/prompts](https://github.com/bombshell-dev/clack)) is just the wizard.
-The **engine** (`src/review-sweep.ts`, dependency-free Bun) is the sweep. The **taste** lives in a `.review/`
+The **CLI** (`src/cli.ts`, Bun + [@clack/prompts](https://github.com/bombshell-dev/clack)) runs on your laptop;
+it provisions the VM via `ssh exe.dev new --integration … --setup-script …` (the setup-script just runs
+`bunx … setup`, so the box installs itself). The **engine** (`src/review-sweep.ts`, dependency-free Bun) is
+the sweep that runs there. The **taste** lives in a `.review/`
 dir *inside the repo you're reviewing*, so it's version-controlled with the code it judges. Idempotent
 (one review per head SHA), bot/draft PRs skipped, `MAX_PRS` cap, `DRY_RUN`, single-flight via `flock`, and a
 **loud failure comment** if Codex can't run. Full design notes — including why memory replaced a debounce
