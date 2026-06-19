@@ -455,13 +455,13 @@ function main(): void {
   if (!refreshRepo(cfg)) process.exit(1)
   // Resolve the taste: the target repo's own .review/ wins (a repo can override); otherwise fall back to the
   // home taste the CLI assembled from packs (~/.stupify/.review). Either way cfg.reviewDir becomes ABSOLUTE.
+  // Select on the FULL 3-file set, not just CORPUS.md — a partial repo .review/ (e.g. CORPUS without the spec)
+  // then gracefully falls back to the home taste instead of being picked and dead-ending at "no machinery".
+  const hasMachinery = (d: string) =>
+    existsSync(join(d, 'CORPUS.md')) && existsSync(join(d, 'REVIEW-PROMPT.md')) && existsSync(join(d, 'RUBRIC.md'))
   const repoReview = join(cfg.repoDir, cfg.reviewDir)
-  cfg.reviewDir = existsSync(join(repoReview, 'CORPUS.md')) ? repoReview : cfg.homeReviewDir
-  const haveMachinery =
-    existsSync(join(cfg.reviewDir, 'CORPUS.md')) &&
-    existsSync(join(cfg.reviewDir, 'REVIEW-PROMPT.md')) &&
-    existsSync(join(cfg.reviewDir, 'RUBRIC.md'))
-  if (!haveMachinery) {
+  cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
+  if (!hasMachinery(cfg.reviewDir)) {
     log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
     return
   }
