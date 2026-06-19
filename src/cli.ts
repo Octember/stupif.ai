@@ -260,14 +260,15 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   outro(pc.green('stupify is watching ') + pc.bold(repo) + pc.green(' 👀'))
 }
 
-function run(dry: boolean): void {
+function run(forwardArgs: string[]): void {
   const sweep = join(HOME, 'review-sweep.ts')
   if (!Bun.file(sweep).size) {
     log.error(`not set up yet — run ${pc.cyan('stupify')} first`)
     process.exit(1)
   }
+  const dry = forwardArgs.includes('--dry') || forwardArgs.includes('--dry-run') || forwardArgs.includes('-d')
   const env = { ...process.env, ...(dry ? { DRY_RUN: '1' } : {}) }
-  const r = spawnSync('bun', [sweep], { stdio: 'inherit', env })
+  const r = spawnSync('bun', [sweep, ...forwardArgs], { stdio: 'inherit', env })
   process.exit(r.status ?? 1)
 }
 
@@ -436,7 +437,8 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify                 provision an exe.dev VM that reviews your repo ${pc.dim('(the magic)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
-  stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify run [args]      run one review sweep now (where stupify is installed)
+                          supports: --dry, --pr <num>, --force, --no-lock
   stupify --help
 
 ${pc.dim('Flags')}
@@ -462,7 +464,8 @@ const cmd = positional[0]
 if (args.includes('-h') || args.includes('--help')) {
   help()
 } else if (cmd === 'run') {
-  run(args.includes('--dry'))
+  const runArgs = args.filter((a) => a !== 'run')
+  run(runArgs)
 } else if (cmd === 'setup') {
   await setup({ repo: positional[1], host, yes, pack })
 } else {

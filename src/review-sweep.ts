@@ -23,6 +23,46 @@ import { fileURLToPath } from 'node:url'
 
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
+const isTTY = process.stdout.isTTY
+
+export const colors = {
+  green: (s: string) => isTTY ? `\x1b[32m${s}\x1b[0m` : s,
+  yellow: (s: string) => isTTY ? `\x1b[33m${s}\x1b[0m` : s,
+  red: (s: string) => isTTY ? `\x1b[31m${s}\x1b[0m` : s,
+  cyan: (s: string) => isTTY ? `\x1b[36m${s}\x1b[0m` : s,
+  magenta: (s: string) => isTTY ? `\x1b[35m${s}\x1b[0m` : s,
+  dim: (s: string) => isTTY ? `\x1b[2m${s}\x1b[0m` : s,
+  bold: (s: string) => isTTY ? `\x1b[1m${s}\x1b[22m` : s,
+}
+
+interface ParsedArgs {
+  prNum?: number
+  force: boolean
+  noLock: boolean
+  dryRun: boolean
+}
+
+function parseCliArgs(): ParsedArgs {
+  const args = process.argv.slice(2)
+  const prIndex = args.indexOf('--pr')
+  let prNum: number | undefined
+  if (prIndex >= 0 && prIndex + 1 < args.length) {
+    const val = args[prIndex + 1]
+    if (val && /^\d+$/.test(val)) {
+      prNum = Number(val)
+    } else {
+      console.error(`\x1b[31merror: --pr requires a valid numeric PR number\x1b[0m`)
+      process.exit(1)
+    }
+  }
+  const force = args.includes('--force') || args.includes('-f')
+  const noLock = args.includes('--no-lock')
+  const dryRun = args.includes('--dry-run') || args.includes('--dry') || args.includes('-d')
+  return { prNum, force, noLock, dryRun }
+}
+
+const cliArgs = parseCliArgs()
+
 export interface Config {
   repoDir: string // dedicated checkout we hard-reset — never a working checkout you care about
   remote: string
@@ -52,7 +92,7 @@ function loadConfig(): Config {
     const trimmed = set.trim()
     const n = Number(trimmed)
     if (/^\d+$/.test(trimmed) && n >= min) return n
-    log(`config: ${key}='${set}' is not an integer ≥ ${min} — using ${fallback}`)
+    log(colors.yellow(`config: ${key}='${set}' is not an integer ≥ ${min} — using ${fallback}`))
     return fallback
   }
   const bool = (key: string, unset: boolean, onInvalid: boolean): boolean => {
@@ -61,7 +101,7 @@ function loadConfig(): Config {
     const v = set.trim().toLowerCase()
     if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true
     if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false
-    log(`config: ${key}='${set}' is not a boolean (1/0/true/false/yes/no/on/off) — using ${onInvalid} (fail-safe)`)
+    log(colors.yellow(`config: ${key}='${set}' is not a boolean (1/0/true/false/yes/no/on/off) — using ${onInvalid} (fail-safe)`))
     return onInvalid
   }
 
@@ -73,11 +113,13 @@ function loadConfig(): Config {
 
   const slug = pick('REPO_SLUG', '').trim()
   if (!slug) {
-    log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify` to set up.')
+    log(colors.red('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify` to set up.'))
     process.exit(1)
   }
   const scopeRaw = pick('SCOPE', 'label').trim().toLowerCase()
-  if (scopeRaw !== 'label' && scopeRaw !== 'auto') log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using label`)
+  if (scopeRaw !== 'label' && scopeRaw !== 'auto') {
+    log(colors.yellow(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using label`))
+  }
 
   return {
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
@@ -89,7 +131,7 @@ function loadConfig(): Config {
     scope: scopeRaw === 'auto' ? 'auto' : 'label',
     reviewLabel: pick('REVIEW_LABEL', 'codex-review'),
     diffLineCap: int('DIFF_LINE_CAP', 800, 1),
-    dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
+    dryRun: cliArgs.dryRun || bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
@@ -125,10 +167,11 @@ interface ProcResult {
 }
 
 function exec(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): ProcResult {
+  const timeout = opts.timeoutMs ?? 120_000
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd,
     input: '', // close stdin (codex would otherwise read from the terminal)
-    timeout: opts.timeoutMs,
+    timeout,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   })
@@ -136,35 +179,55 @@ function exec(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: num
   // spawnSync reports a timeout via signal (SIGTERM) and a spawn failure (ENOENT etc.) via `error`, both with
   // EMPTY stdout/stderr. Fold them into combined so the failure path surfaces the real cause, not "no output".
   let combined = stdout + (r.stderr ?? '')
-  if (r.signal) combined += `\n${cmd}: process killed by ${r.signal}${opts.timeoutMs ? ` (timeout ${opts.timeoutMs}ms)` : ''}`
+  if (r.signal) combined += `\n${cmd}: process killed by ${r.signal} (timeout ${timeout}ms)`
   if (r.error) combined += `\n${cmd}: ${r.error.message}`
-  return { ok: r.status === 0 && r.error === undefined, stdout, combined }
+  return { ok: r.status === 0 && r.error === undefined && r.signal === null, stdout, combined }
 }
 
 let LOG = ''
 function log(message: string): void {
-  const line = `${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')} ${message}`
+  const plainMessage = message.replace(/\x1b\[[0-9;]*m/g, '')
+  const line = `${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')} ${plainMessage}`
   if (LOG) appendFileSync(LOG, `${line}\n`)
-  console.log(line)
+  
+  const consoleLine = isTTY 
+    ? `\x1b[90m${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}\x1b[0m ${message}`
+    : line
+  console.log(consoleLine)
 }
 
 /** Refresh the dedicated checkout to origin/main. Returns false on any git failure. */
 function refreshRepo(cfg: Config): boolean {
   mkdirSync(dirname(cfg.repoDir), { recursive: true })
   if (!existsSync(join(cfg.repoDir, '.git'))) {
-    log(`cloning ${cfg.remote} -> ${cfg.repoDir}`)
-    if (!exec('git', ['clone', '-q', cfg.remote, cfg.repoDir]).ok) return logFail('clone failed')
+    log(colors.cyan(`cloning ${cfg.remote} -> ${cfg.repoDir}`))
+    const cloneResult = exec('git', ['clone', '-q', cfg.remote, cfg.repoDir], { timeoutMs: 300_000 })
+    if (!cloneResult.ok) {
+      log(colors.red(`clone failed: ${cloneResult.combined.trim()}`))
+      return logFail('clone failed')
+    }
   }
   const branch = cfg.defaultBranch
-  const ok =
-    exec('git', ['fetch', '-q', 'origin', branch], { cwd: cfg.repoDir }).ok &&
-    exec('git', ['checkout', '-q', branch], { cwd: cfg.repoDir }).ok &&
-    exec('git', ['reset', '-q', '--hard', `origin/${branch}`], { cwd: cfg.repoDir }).ok
-  return ok || logFail(`refresh failed (is the default branch '${branch}'? set DEFAULT_BRANCH if not)`)
+  const f = exec('git', ['fetch', '-q', 'origin', branch], { cwd: cfg.repoDir })
+  if (!f.ok) {
+    log(colors.red(`git fetch failed: ${f.combined.trim()}`))
+    return logFail(`refresh failed (could not fetch origin/${branch})`)
+  }
+  const co = exec('git', ['checkout', '-q', branch], { cwd: cfg.repoDir })
+  if (!co.ok) {
+    log(colors.red(`git checkout failed: ${co.combined.trim()}`))
+    return logFail(`refresh failed (could not checkout ${branch})`)
+  }
+  const rst = exec('git', ['reset', '-q', '--hard', `origin/${branch}`], { cwd: cfg.repoDir })
+  if (!rst.ok) {
+    log(colors.red(`git reset failed: ${rst.combined.trim()}`))
+    return logFail(`refresh failed (could not reset hard to origin/${branch})`)
+  }
+  return true
 }
 
 function logFail(message: string): false {
-  log(message)
+  log(colors.red(message))
   return false
 }
 
@@ -181,23 +244,46 @@ function listPrs(cfg: Config): Pr[] | null {
   const fields = 'number,headRefOid,isDraft,author,labels'
   const r = exec('gh', ['pr', 'list', '--repo', cfg.slug, '--state', 'open', '--json', fields])
   if (!r.ok) {
-    log('gh pr list failed (auth/network down?) — aborting sweep')
+    log(colors.red('gh pr list failed (auth/network down?) — aborting sweep'))
     return null
   }
   let raw: unknown
   try {
     raw = JSON.parse(r.stdout)
   } catch {
-    log('gh pr list returned unparseable JSON — aborting sweep')
+    log(colors.red('gh pr list returned unparseable JSON — aborting sweep'))
     return null
   }
   if (!Array.isArray(raw)) {
-    log('gh pr list returned a non-array — aborting sweep')
+    log(colors.red('gh pr list returned a non-array — aborting sweep'))
     return null
   }
   const prs = raw.filter(isPr)
-  if (prs.length < raw.length) log(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`)
+  if (prs.length < raw.length) {
+    log(colors.yellow(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`))
+  }
   return prs
+}
+
+function getSinglePr(cfg: Config, num: number): Pr | null {
+  const fields = 'number,headRefOid,isDraft,author,labels'
+  const r = exec('gh', ['pr', 'view', String(num), '--repo', cfg.slug, '--json', fields])
+  if (!r.ok) {
+    log(colors.red(`gh pr view #${num} failed (auth/network down or PR doesn't exist?) — aborting sweep`))
+    return null
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(r.stdout)
+  } catch {
+    log(colors.red(`gh pr view #${num} returned unparseable JSON — aborting sweep`))
+    return null
+  }
+  if (!isPr(raw)) {
+    log(colors.red(`gh pr view #${num} returned data that failed shape check — aborting sweep`))
+    return null
+  }
+  return raw
 }
 
 // Fully validate the gh boundary. gh guarantees the --json shape, but an auth-error page or schema drift
@@ -341,7 +427,7 @@ Keep it terse; no preamble.${memory}`
 function reviewPr(cfg: Config, pr: Pr, priorThread: string): number | null {
   const { failMark } = markersFor(pr)
   const outPath = `/tmp/review-${pr.number}.md`
-  log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
+  log(`reviewing PR ${colors.cyan(`#${pr.number}`)} @ ${colors.dim(pr.headRefOid.slice(0, 8))}`)
   const codexArgs = [
     'exec',
     '--cd',
@@ -359,32 +445,40 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string): number | null {
   if (cfg.codexModel) codexArgs.push('-c', `model=${cfg.codexModel}`)
   codexArgs.push(reviewPrompt(cfg, pr, priorThread))
 
-  const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000 })
-  appendFileSync(LOG, `${cx.combined}\n`)
+  try {
+    const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000 })
+    appendFileSync(LOG, `${cx.combined}\n`)
 
-  if (cx.ok) {
-    const tokens = parseTokens(cx.combined)
-    log(`  #${pr.number} done (${tokens ?? '?'} tokens)`)
-    return tokens ?? 0
-  }
+    if (cx.ok) {
+      const tokens = parseTokens(cx.combined)
+      log(`  ${colors.green(`#${pr.number} done`)} (${tokens ?? '?'} tokens)`)
+      return tokens ?? 0
+    }
 
-  // Codex couldn't run (provider down, out of credits, timeout, bad diff). Don't fail silently — post a short
-  // error on the PR and stamp FAIL_MARK so the next sweep skips this head instead of re-hammering every minute.
-  const reason = failureReason(cx.combined)
-  log(`  review FAILED for #${pr.number} — ${reason}`)
-  const body = [
-    "uhh — i couldn't review this one. codex didn't run:",
-    '',
-    `> ${reason}`,
-    '',
-    "_— stupify (auto-reviewer). i'll retry on your next push._",
-    failMark,
-  ].join('\n')
-  writeFileSync(outPath, `${body}\n`)
-  if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
-    log(`    (couldn't post failure comment for #${pr.number} either — gh down?)`)
+    // Codex couldn't run (provider down, out of credits, timeout, bad diff). Don't fail silently — post a short
+    // error on the PR and stamp FAIL_MARK so the next sweep skips this head instead of re-hammering every minute.
+    const reason = failureReason(cx.combined)
+    log(`  review ${colors.red('FAILED')} for #${pr.number} — ${reason}`)
+    const body = [
+      "uhh — i couldn't review this one. codex didn't run:",
+      '',
+      `> ${reason}`,
+      '',
+      "_— stupify (auto-reviewer). i'll retry on your next push._",
+      failMark,
+    ].join('\n')
+    writeFileSync(outPath, `${body}\n`)
+    if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
+      log(`    (couldn't post failure comment for #${pr.number} either — gh down?)`)
+    }
+    return null
+  } finally {
+    try {
+      if (existsSync(outPath)) rmSync(outPath, { force: true })
+    } catch {
+      /* best effort */
+    }
   }
-  return null
 }
 
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
@@ -435,17 +529,19 @@ function main(): void {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
 
   const lockPath = join(cfg.stateDir, 'sweep.lock')
-  if (!acquireLock(lockPath)) {
-    log('another sweep already running — skip')
-    return
-  }
-  process.on('exit', () => {
-    try {
-      rmSync(lockPath, { force: true })
-    } catch {
-      /* best-effort */
+  if (!cliArgs.noLock) {
+    if (!acquireLock(lockPath)) {
+      log(colors.yellow('another sweep already running — skip'))
+      return
     }
-  })
+    process.on('exit', () => {
+      try {
+        rmSync(lockPath, { force: true })
+      } catch {
+        /* best-effort */
+      }
+    })
+  }
 
   if (!refreshRepo(cfg)) process.exit(1)
   // Resolve the taste: the target repo's own .review/ wins (a repo can override); otherwise fall back to the
@@ -457,13 +553,24 @@ function main(): void {
     existsSync(join(cfg.reviewDir, 'REVIEW-PROMPT.md')) &&
     existsSync(join(cfg.reviewDir, 'RUBRIC.md'))
   if (!haveMachinery) {
-    log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
+    log(colors.yellow(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`))
     return
   }
 
-  const prs = listPrs(cfg)
-  if (prs === null) process.exit(1)
-  const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (below)
+  let queue: Pr[] = []
+  const isTargeted = cliArgs.prNum !== undefined
+  if (isTargeted) {
+    const targetPrNum = cliArgs.prNum
+    if (targetPrNum !== undefined) {
+      const singlePr = getSinglePr(cfg, targetPrNum)
+      if (singlePr === null) process.exit(1)
+      queue = [singlePr]
+    }
+  } else {
+    const prs = listPrs(cfg)
+    if (prs === null) process.exit(1)
+    queue = prs.filter((pr) => inScope(pr, cfg))
+  }
 
   let reviewed = 0
   let tokens = 0
@@ -472,39 +579,54 @@ function main(): void {
   let handled = 0
   for (const pr of queue) {
     const { mark, failMark } = markersFor(pr)
+    
+    if (isTargeted) {
+      if (pr.isDraft) log(colors.yellow(`warning: #${pr.number} is a draft PR but reviewing anyway since it was explicitly targeted`))
+      if ((pr.author?.login ?? '').endsWith('[bot]')) {
+        log(colors.yellow(`warning: #${pr.number} is a bot PR but reviewing anyway since it was explicitly targeted`))
+      }
+    }
+
     const comments = prComments(cfg, pr.number)
     if (comments === null) {
-      log(`skip #${pr.number} — couldn't read it from gh (failed/malformed); will retry next sweep`)
+      log(colors.red(`skip #${pr.number} — couldn't read it from gh (failed/malformed); will retry next sweep`))
       continue
     }
     const bodies = comments.map((c) => c.body).join('\n')
-    if (bodies.includes(mark) || bodies.includes(failMark)) continue
+    const alreadyReviewed = bodies.includes(mark) || bodies.includes(failMark)
+    
+    if (alreadyReviewed && !cliArgs.force) {
+      if (isTargeted) {
+        log(colors.yellow(`PR #${pr.number} has already been reviewed at head SHA ${pr.headRefOid.slice(0, 8)} — skip (use --force or -f to re-review)`))
+      }
+      continue
+    }
 
     // Past the cheap dedup skip — this PR is a real candidate. Enforce MAX_PRS here, not on the
     // iterated list, and defer the rest to the next sweep.
-    if (handled >= cfg.maxPrs) {
-      log(`reached MAX_PRS=${cfg.maxPrs} this sweep — deferring remaining candidates to the next sweep`)
+    if (!isTargeted && handled >= cfg.maxPrs) {
+      log(colors.yellow(`reached MAX_PRS=${cfg.maxPrs} this sweep — deferring remaining candidates to the next sweep`))
       break
     }
     handled += 1
 
     let lines = 0
-    if (cfg.scope === 'auto' || cfg.dryRun) {
+    if (cfg.scope === 'auto' || cfg.dryRun || isTargeted) {
       const counted = diffLineCount(cfg, pr.number)
       if (counted === null) {
-        log(`skip #${pr.number} — couldn't read its diff from gh; will retry next sweep`)
+        log(colors.red(`skip #${pr.number} — couldn't read its diff from gh; will retry next sweep`))
         continue
       }
       lines = counted
     }
     // auto-scope only: skip oversized diffs UNLESS the PR carries the review label (the documented force-include).
     // (label-scope means you already opted in, so size never gates there.)
-    if (cfg.scope === 'auto' && lines > cfg.diffLineCap && !hasReviewLabel(pr, cfg)) {
-      log(`skip #${pr.number} — diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`)
+    if (!isTargeted && cfg.scope === 'auto' && lines > cfg.diffLineCap && !hasReviewLabel(pr, cfg)) {
+      log(colors.yellow(`skip #${pr.number} — diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`))
       continue
     }
     if (cfg.dryRun) {
-      log(`DRY_RUN would review #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (diff ${lines} lines)`)
+      log(colors.green(`DRY_RUN would review #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (diff ${lines} lines)`))
       continue
     }
 
