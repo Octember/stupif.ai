@@ -23,15 +23,15 @@ they should've used.
 Most AI reviewers carpet-bomb your PR with `consider renaming this`. stupify stays quiet until it finds
 something real, says it in one sentence, and shuts up.
 
-> uhhhh ummm a couple things 👇
+> uhhhh ummm this cleanup got a little cleanup-y:
 >
-> 🔴 **`api/sync/worker.ts:142`** · bug · conf 0.88
-> the retry got golfed into a recursive ternary that never resets `attempt`, so one 500 retries forever and pins the worker. too clever to debug.
-> **→ Fix:** use `withRetry()` from `lib/retry.ts` (it caps attempts), delete the ternary.
+> 🟠 **`server/checkout.ts:40`** · slop · conf 0.82
+> you inlined `validateCart` and `applyDiscounts` into the handler, so it's branch soup with two mutable `let`s now, instead of validate → price → charge. those weren't throwaway wrappers, they were the steps.
+> **→ Fix:** put the named steps back. the handler should orchestrate, not do all of it.
 >
-> 🟡 **`api/sync/worker.ts:31`** · slop · conf 0.7
-> `SyncStrategyFactory<T>` is a generic factory with one implementation. it's a function in a costume.
-> **→ Fix:** inline it as `syncOrders()`. add the abstraction back if a second strategy ever shows up.
+> 🟡 **`server/checkout.ts:12`** · slop · conf 0.7
+> `order?.total ?? order.cart.total` — `order` is required here, so the `?.` never fires and the fallback is dead code cosplaying as safety. it's `order.total`.
+> **→ Fix:** drop the `?.` and the `??`. if order's actually optional, fix the type, don't paper over it.
 >
 > _— stupify, against the good-code corpus_
 
