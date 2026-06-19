@@ -8,12 +8,13 @@
  * `stupify run [--dry]` → run one review sweep right now.
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinner, text } from '@clack/prompts'
 import pc from 'picocolors'
+import { emitPrime } from './prime'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
@@ -260,34 +261,92 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   outro(pc.green('stupify is watching ') + pc.bold(repo) + pc.green(' 👀'))
 }
 
-// `stupify prime` — emit the pre-decided taste (rubric + corpus index) as a Claude Code SessionStart hook
-// payload, so a coding session opens already holding your standard. Pure file read — no model, no network, so
-// it stays instant — and it must NEVER disrupt a session: any miss or error emits nothing and exits 0.
-// stdout MUST stay pure JSON (a stray byte makes Claude Code drop the whole payload), so this writes nothing else.
-function prime(): void {
+// --- prime: wire `stupify prime` into Claude Code as a SessionStart hook (self-contained, install ⇄ uninstall) ---
+// The hook EMITTER lives in the dependency-free ./prime module (also copied to ~/.stupify/prime.ts on install,
+// so the hook runs with no global install / node_modules). Everything below only manages the wiring.
+
+const PRIME_ENGINE = join(HOME, 'prime.ts') // the dep-free copy the hook actually runs; also our marker in settings.json
+
+/** Claude Code's user settings file. CLAUDE_CONFIG_DIR overrides ~/.claude (and makes this testable). */
+const claudeSettingsPath = (): string => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json')
+
+/** Read settings.json (or {} if absent). Throws on malformed JSON so callers refuse to clobber a broken file. */
+function readSettings(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {}
+  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+}
+
+type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] }
+const isOurHook = (e: HookEntry): boolean => (e.hooks ?? []).some((h) => (h.command ?? '').includes(PRIME_ENGINE))
+
+function installPrimeHook(): void {
+  console.clear()
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — prime Claude Code with your taste'))
+  // 1. drop the dep-free emitter where the hook can run it fast, no global install needed
+  mkdirSync(HOME, { recursive: true })
+  copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE)
+  const command = `${stableBun()} ${PRIME_ENGINE}`
+
+  // 2. merge our SessionStart hook into settings.json — never clobber existing hooks/settings, never duplicate
+  const path = claudeSettingsPath()
+  let settings: Record<string, unknown>
   try {
-    // Same resolution as the reviewer: the repo you're coding in wins; else the pack taste `stupify` assembled.
-    const dir = [join(process.cwd(), '.review'), join(HOME, '.review')].find(
-      (d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')),
-    )
-    if (!dir) return // no taste set up yet → no-op (never break session start)
-    const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()
-    const corpus = readFileSync(join(dir, 'CORPUS.md'), 'utf8').trim()
-    const additionalContext = `# Your taste, loaded by stupify — write to this standard
-
-You're about to write or change code in this repo. Hold every edit to the standard below BEFORE you write it —
-it's the same taste stupify reviews against, so matching it now is a clean review later.
-
-## What counts as slop here — don't ship it (RUBRIC)
-${rubric}
-
-## The code yours should look like (CORPUS)
-The links are commit-pinned exemplars — open one only if a finding needs the detail; never paste them in wholesale.
-${corpus}`
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } }))
+    settings = readSettings(path)
   } catch {
-    /* a hook must never break session start — emit nothing on any failure */
+    die(`couldn't parse ${path} — fix or remove it, then retry (left it untouched)`)
   }
+  const hooks = (settings.hooks ??= {}) as Record<string, HookEntry[]>
+  const sessionStart = (hooks.SessionStart ??= [])
+  const already = sessionStart.some(isOurHook)
+  if (!already) sessionStart.push({ matcher: 'startup', hooks: [{ type: 'command', command }] })
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`)
+
+  note(
+    [
+      already
+        ? `already wired in ${pc.cyan(path)} ${pc.dim('(refreshed the engine)')}`
+        : `added a ${pc.bold('SessionStart')} hook to ${pc.cyan(path)}`,
+      `every new Claude Code session now opens primed with your taste ${pc.dim('(~30ms, no-op if a repo has none)')}.`,
+      ``,
+      `${pc.dim('undo:')} ${pc.cyan('stupify prime --uninstall')}`,
+    ].join('\n'),
+    "you're primed",
+  )
+  outro(pc.green('Claude Code will write to your taste from the first line 🧠'))
+}
+
+function uninstallPrimeHook(): void {
+  console.clear()
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — remove the Claude Code prime hook'))
+  const path = claudeSettingsPath()
+  let removed = false
+  if (existsSync(path)) {
+    let settings: Record<string, unknown>
+    try {
+      settings = readSettings(path)
+    } catch {
+      die(`couldn't parse ${path} — fix or remove it, then retry (left it untouched)`)
+    }
+    const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
+    if (hooks?.SessionStart) {
+      const kept = hooks.SessionStart.filter((e) => !isOurHook(e))
+      removed = kept.length !== hooks.SessionStart.length
+      if (kept.length > 0) hooks.SessionStart = kept
+      else delete hooks.SessionStart
+      if (Object.keys(hooks).length === 0) delete settings.hooks
+      writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`)
+    }
+  }
+  rmSync(PRIME_ENGINE, { force: true }) // drop the copied engine too
+
+  note(
+    removed
+      ? `removed the SessionStart hook from ${pc.cyan(path)}. your other hooks + settings are untouched.`
+      : `no stupify prime hook found ${pc.dim('(nothing to remove)')}.`,
+    'done',
+  )
+  outro(pc.green('unprimed.'))
 }
 
 function run(dry: boolean): void {
@@ -467,7 +526,8 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
-  stupify prime           print your taste for a Claude Code SessionStart hook (prime the agent before it codes)
+  stupify prime --install     prime Claude Code with your taste every session (adds a SessionStart hook)
+  stupify prime --uninstall   remove that hook
   stupify --help
 
 ${pc.dim('Flags')}
@@ -493,7 +553,9 @@ const cmd = positional[0]
 if (args.includes('-h') || args.includes('--help')) {
   help()
 } else if (cmd === 'prime') {
-  prime() // machine-called by a Claude Code SessionStart hook — must print only the JSON payload
+  if (args.includes('--install')) installPrimeHook()
+  else if (args.includes('--uninstall')) uninstallPrimeHook()
+  else emitPrime() // bare `prime`: machine-called by the SessionStart hook — prints only the JSON payload
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'setup') {
