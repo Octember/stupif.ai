@@ -239,7 +239,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     note(
       [
         `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
-        `label any open PR ${pc.cyan('codex-review')} ${pc.dim('(or add .github/workflows/autolabel.yml)')} → a review in ~60s.`,
+        `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
         ``,
         `want your OWN taste instead? add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — it overrides the pack.`,
         preview,
@@ -250,7 +250,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     note(
       [
         `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)} and point ${pc.cyan('CORPUS.md')} at YOUR best files`,
-        `${pc.bold('2.')} label any open PR ${pc.cyan('codex-review')} ${pc.dim('(or add autolabel.yml)')} → a review in ~60s`,
+        `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
         ``,
         preview,
       ].join('\n'),
@@ -258,6 +258,36 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     )
   }
   outro(pc.green('stupify is watching ') + pc.bold(repo) + pc.green(' 👀'))
+}
+
+// `stupify prime` — emit the pre-decided taste (rubric + corpus index) as a Claude Code SessionStart hook
+// payload, so a coding session opens already holding your standard. Pure file read — no model, no network, so
+// it stays instant — and it must NEVER disrupt a session: any miss or error emits nothing and exits 0.
+// stdout MUST stay pure JSON (a stray byte makes Claude Code drop the whole payload), so this writes nothing else.
+function prime(): void {
+  try {
+    // Same resolution as the reviewer: the repo you're coding in wins; else the pack taste `stupify` assembled.
+    const dir = [join(process.cwd(), '.review'), join(HOME, '.review')].find(
+      (d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')),
+    )
+    if (!dir) return // no taste set up yet → no-op (never break session start)
+    const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()
+    const corpus = readFileSync(join(dir, 'CORPUS.md'), 'utf8').trim()
+    const additionalContext = `# Your taste, loaded by stupify — write to this standard
+
+You're about to write or change code in this repo. Hold every edit to the standard below BEFORE you write it —
+it's the same taste stupify reviews against, so matching it now is a clean review later.
+
+## What counts as slop here — don't ship it (RUBRIC)
+${rubric}
+
+## The code yours should look like (CORPUS)
+The links are commit-pinned exemplars — open one only if a finding needs the detail; never paste them in wholesale.
+${corpus}`
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } }))
+  } catch {
+    /* a hook must never break session start — emit nothing on any failure */
+  }
 }
 
 function run(forwardArgs: string[]): void {
@@ -408,13 +438,13 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   const firstReview = packs.length
     ? [
         `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
-        `label any open PR ${pc.cyan('codex-review')} ${pc.dim('(or add .github/workflows/autolabel.yml)')} → a review in ~60s.`,
+        `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
         ``,
         `want your OWN taste? add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — it overrides the pack.`,
       ]
     : [
         `${pc.bold('1.')} add a ${pc.cyan('.review/')} dir to ${pc.bold(repo)} — copy this repo's .review/, point CORPUS.md at YOUR best files`,
-        `${pc.bold('2.')} label any open PR ${pc.cyan('codex-review')} ${pc.dim('(or add .github/workflows/autolabel.yml)')}`,
+        `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
       ]
   note(
     [
@@ -439,6 +469,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [args]      run one review sweep now (where stupify is installed)
                           supports: --dry, --pr <num>, --force, --no-lock
+  stupify prime           print your taste for a Claude Code SessionStart hook (prime the agent before it codes)
   stupify --help
 
 ${pc.dim('Flags')}
@@ -463,6 +494,8 @@ const cmd = positional[0]
 
 if (args.includes('-h') || args.includes('--help')) {
   help()
+} else if (cmd === 'prime') {
+  prime() // machine-called by a Claude Code SessionStart hook — must print only the JSON payload
 } else if (cmd === 'run') {
   const runArgs = args.filter((a) => a !== 'run')
   run(runArgs)

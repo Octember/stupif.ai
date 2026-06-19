@@ -65,8 +65,9 @@ New to exe.dev? `ssh exe.dev` to onboard and link GitHub at [exe.dev/integration
 and you choose a [taste pack](packs) — review like [dtolnay](packs/dtolnay.md), [DHH](packs/dhh.md),
 [antirez](packs/antirez.md), [the perf pack](packs/jarred-sumner.md), and [more](packs) — or bring your own by
 copying [`.review/`](.review) into your repo and pointing `CORPUS.md` at the files you *wish* all your code
-looked like (it overrides the pack). Label a PR `codex-review` (or drop in
-[`autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands in ~60s.
+looked like (it overrides the pack). Then just **open a PR** — stupify reviews every non-draft, non-bot PR in
+~60s, no labels or workflows to wire up. (Want manual control? `SCOPE=label` flips it to opt-in: only PRs you
+tag get reviewed.)
 
 ```bash
 bunx @stupify/cli <owner/repo>          # provision for a specific repo
@@ -78,7 +79,7 @@ ssh exe.dev rm stupify-<owner>-<repo>   # tear it down
 
 ```
 cron (~60s) → review-sweep.ts → codex exec → gh pr comment
-  refresh checkout · list labelled PRs · skip already-reviewed heads
+  refresh checkout · list open PRs (skip drafts/bots) · skip already-reviewed heads
   feed the PR's thread back as memory · review against .review/* · post
 ```
 

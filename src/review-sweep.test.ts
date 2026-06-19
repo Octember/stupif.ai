@@ -31,7 +31,7 @@ const pr = (number: number, sha: string): Pr => ({
   number,
   headRefOid: sha,
   isDraft: false,
-  author: { login: 'someone' },
+  author: { login: 'someone', is_bot: false },
   labels: [{ name: 'codex-review' }],
 })
 
