@@ -4,8 +4,9 @@
  * The engine the `stupify` CLI deploys to ~/.stupify and runs on a cron (or `stupify run`); config.env sits
  * next to it.
  *
- * OPT-IN by default (SCOPE=label): only PRs tagged REVIEW_LABEL are reviewed, so spend tracks exactly what
- * you tag. SCOPE=auto reviews all non-draft, non-bot PRs under DIFF_LINE_CAP.
+ * Reviews every PR by default (SCOPE=auto): every non-draft, non-bot PR under DIFF_LINE_CAP, no label needed.
+ * REVIEW_LABEL is just a force-include override for an oversized diff. Want manual control instead? SCOPE=label
+ * flips it to opt-in: only PRs you tag REVIEW_LABEL are reviewed, so spend tracks exactly what you tag.
  * The "taste" — REVIEW-PROMPT.md, RUBRIC.md, CORPUS.md — lives in the TARGET repo under REVIEW_DIR (default
  * `.review/`), so it's version-controlled with the code it judges and edited via a normal PR.
  * Idempotent: skips a PR already reviewed — or already reported as failed — at its current head SHA, via a
@@ -76,8 +77,8 @@ function loadConfig(): Config {
     log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify` to set up.')
     process.exit(1)
   }
-  const scopeRaw = pick('SCOPE', 'label').trim().toLowerCase()
-  if (scopeRaw !== 'label' && scopeRaw !== 'auto') log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using label`)
+  const scopeRaw = pick('SCOPE', 'auto').trim().toLowerCase()
+  if (scopeRaw !== 'label' && scopeRaw !== 'auto') log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
 
   return {
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
@@ -86,7 +87,7 @@ function loadConfig(): Config {
     defaultBranch: pick('DEFAULT_BRANCH', 'main'),
     reviewDir: pick('REVIEW_DIR', '.review'), // relative name here; main() resolves it to an absolute path (repo's or home's)
     homeReviewDir: join(stupifyHome, '.review'),
-    scope: scopeRaw === 'auto' ? 'auto' : 'label',
+    scope: scopeRaw === 'label' ? 'label' : 'auto', // auto is the default; only the explicit string 'label' opts into per-PR tagging
     reviewLabel: pick('REVIEW_LABEL', 'codex-review'),
     diffLineCap: int('DIFF_LINE_CAP', 800, 1),
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
