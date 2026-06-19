@@ -1,3 +1,8 @@
+> Debugging is twice as hard as writing the code in the first place. Therefore, if you write the code as
+> cleverly as possible, you are, by definition, not smart enough to debug it.
+>
+> — **Kernighan's Law**
+
 # stupify
 
 Tired of [wasting your time](https://github.com/thesysdev/openui/issues/517) reviewing [AI](https://github.com/RsyncProject/rsync/issues/929) [slop](https://github.com/anthropics/claudes-c-compiler/issues/1)?
@@ -5,10 +10,10 @@ Tired of [wasting your time](https://github.com/thesysdev/openui/issues/517) rev
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**stupify is a code reviewer that talks like an idiot and catches real bugs.** It reviews your PRs on
+**A code reviewer that talks like an idiot and catches real bugs.** It reviews your PRs on
 [Codex](https://github.com/openai/codex) against a corpus of code *you* hand-picked — so it flags *your* kind
-of slop, in *your* voice, and tells people which of *your* primitives they should've reused. Not generic
-"best practices." Yours.
+of slop (the clever, over-abstracted, *"I'll-be-smart-about-this"* kind), in *your* voice, and names the
+boring primitive they should've reused. Not generic "best practices." Yours.
 
 > uhhhh ummm a couple things 👇
 >
