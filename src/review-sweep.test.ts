@@ -11,7 +11,6 @@ const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and th
 
 const cfg = (): Config => ({
   repoDir: '/tmp/x',
-  remote: 'https://github.com/acme/widgets.git',
   slug: 'acme/widgets',
   defaultBranch: 'main',
   reviewDir: REVIEW_DIR,

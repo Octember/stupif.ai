@@ -26,7 +26,6 @@ const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
 export interface Config {
   repoDir: string // dedicated checkout we hard-reset — never a working checkout you care about
-  remote: string
   slug: string
   defaultBranch: string
   reviewDir: string // resolved review dir holding REVIEW-PROMPT.md / RUBRIC.md / CORPUS.md — the repo's .review/ if it has one, else homeReviewDir (set in main)
@@ -82,14 +81,13 @@ function loadConfig(): Config {
 
   return {
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
-    remote: pick('REMOTE', `https://github.com/${slug}.git`),
     slug,
     defaultBranch: pick('DEFAULT_BRANCH', 'main'),
     reviewDir: pick('REVIEW_DIR', '.review'), // relative name here; main() resolves it to an absolute path (repo's or home's)
     homeReviewDir: join(stupifyHome, '.review'),
     scope: scopeRaw === 'label' ? 'label' : 'auto', // auto is the default; only the explicit string 'label' opts into per-PR tagging
     reviewLabel: pick('REVIEW_LABEL', 'codex-review'),
-    diffLineCap: int('DIFF_LINE_CAP', 800, 1),
+    diffLineCap: int('DIFF_LINE_CAP', 5000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
     stateDir,
@@ -153,8 +151,13 @@ function log(message: string): void {
 function refreshRepo(cfg: Config): boolean {
   mkdirSync(dirname(cfg.repoDir), { recursive: true })
   if (!existsSync(join(cfg.repoDir, '.git'))) {
-    log(`cloning ${cfg.remote} -> ${cfg.repoDir}`)
-    if (!exec('git', ['clone', '-q', cfg.remote, cfg.repoDir]).ok) return logFail('clone failed')
+    log(`cloning ${cfg.slug} -> ${cfg.repoDir}`)
+    // Clone with `gh` so PRIVATE repos work: it uses gh's auth (and, on exe.dev, the integration's proxied host).
+    // A plain `git clone https://github.com/<slug>` has no credentials and fails on anything private — which is
+    // most real repos. gh sets `origin` to the authed URL, so the fetch/checkout/reset below inherit it.
+    if (!exec('gh', ['repo', 'clone', cfg.slug, cfg.repoDir, '--', '-q']).ok) {
+      return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
+    }
   }
   const branch = cfg.defaultBranch
   const ok =
