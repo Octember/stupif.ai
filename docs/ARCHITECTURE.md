@@ -1,34 +1,49 @@
 # Architecture
 
-stupify is a single ~450-line dependency-free Bun script (`review-sweep.ts`) plus three markdown files
-that encode taste. This doc covers how the pieces fit and *why* — the design decisions are the interesting part.
+stupify is two dependency-free Bun engines (`review-sweep.ts`, `prime.ts`) plus a CLI (`cli.ts`) that wires
+them up, all driving the same three markdown files that encode taste. This doc covers how the pieces fit and
+*why* — the design decisions are the interesting part.
 
 ## Two halves: engine vs taste
 
 The hardest part of an AI reviewer isn't the loop — it's *what it reviews against*. So the two concerns are
-split across two locations:
+split: generic engines, and the taste they read.
 
 | | Lives in | Is |
 |---|---|---|
-| **Engine** | this repo (`review-sweep.ts`, `install.sh`) | generic infra — shells out to `git`/`gh`/`codex` |
-| **Taste** | a `.review/` dir **in the target repo** | `REVIEW-PROMPT.md` (spec), `RUBRIC.md` (anti-slop), `CORPUS.md` (your good code) |
+| **Engines** | this repo (`review-sweep.ts`, `prime.ts`, `cli.ts`) | generic infra — shell out to `git`/`gh`/`codex`, or just read files |
+| **Taste** | `.review/` — a repo's own, else `~/.stupify/.review` | `REVIEW-PROMPT.md` (spec), `RUBRIC.md` (anti-slop), `CORPUS.md` (your good code) |
 
-Putting the taste *inside the repo being reviewed* means it's version-controlled with the code it judges, it's
-visible in code review, and you tune it through a normal PR — the same way you'd change a lint config. The
-engine reads it fresh from `origin/main` on every sweep, so a merged change to the rubric is live immediately.
+A `.review/` *inside the repo being reviewed* is version-controlled with the code it judges, visible in code
+review, and tuned through a normal PR — the same way you'd change a lint config. When a repo has none, both
+engines fall back to `~/.stupify/.review`, which the CLI assembles from [taste packs](../packs). The reviewer
+reads it fresh from `origin/main` on every sweep, so a merged rubric change is live immediately.
+
+## Two ends of the loop: prevent, then detect
+
+The same taste drives two engines at opposite ends of the coding loop:
+
+- **`prime.ts` — prevention.** A Claude Code `SessionStart` hook (wired by `stupify prime --install`) runs
+  `bun ~/.stupify/prime.ts` at the start of every session. It resolves the taste (repo `.review/` wins, else
+  home), inlines the rubric + corpus index, and emits a `{hookSpecificOutput:{additionalContext}}` payload so
+  the agent holds your standard *before* it writes a line. Pure file read — no model, no network, ~30ms. It
+  **never throws**: any miss or error emits nothing and exits 0, because a hook must not break session start.
+  stdout is *only* the JSON payload (a stray byte makes Claude Code drop it).
+- **`review-sweep.ts` — detection.** The cron reviewer below catches whatever drifted, against the same taste.
+
+Encoding taste once and enforcing it at both ends is the whole idea: the best review is the one you didn't need.
 
 ## The sweep loop
 
-A cron job runs the sweep every `REVIEW_INTERVAL_MIN` minutes (default 1); the sweep self-locks so two never
-overlap. Each run:
+A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so two never overlap. Each run:
 
 1. **Refresh** a dedicated checkout (`$STUPIFY_HOME/repo`) to `origin/<DEFAULT_BRANCH>` (default `main`) —
    `fetch && checkout && reset --hard`.
    This checkout is *hard-pinned* and never a working tree you care about, because we destructively reset it.
-2. **List** open PRs via `gh pr list --json`. In `SCOPE=label` (the default) it keeps PRs carrying
-   `REVIEW_LABEL`; in `SCOPE=auto`, all non-draft PRs under `DIFF_LINE_CAP`. Bot (`*[bot]`) and draft authors
-   are skipped in *either* scope. The JSON is fully validated at the boundary (`isPr`) — a malformed shape
-   skips cleanly instead of throwing mid-loop.
+2. **List** open PRs via `gh pr list --json`. In `SCOPE=auto` (the default) it keeps all non-draft PRs under
+   `DIFF_LINE_CAP`, with `REVIEW_LABEL` as a force-include override for oversized ones; `SCOPE=label` flips to
+   opt-in (only labelled PRs). Bot and draft authors are skipped in *either* scope (`gh`'s `is_bot` flag). The
+   JSON is fully validated at the boundary (`isPr`) — a malformed shape skips cleanly instead of throwing mid-loop.
 3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
    `<!-- stupify:<headSHA> -->` (reviewed) or `<!-- stupify-failed:<headSHA> -->` (failed) for the
    *current* head. A new push moves the SHA → markers no longer match → it re-reviews. **One review per head.**

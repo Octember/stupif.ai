@@ -12,13 +12,13 @@ Tired of [wasting your time](https://github.com/thesysdev/openui/issues/517) rev
 
 **A code reviewer that talks like an idiot and catches real bugs.**
 
-Kernighan was right: the clever code is the code you can't debug. stupify reads your PRs on
-[Codex](https://github.com/openai/codex) and drags them back toward boring.
+Kernighan was right: the clever code is the code you can't debug. stupify drags your code back toward boring —
+at **both ends** of the loop:
 
-You give it a `CORPUS.md`: a handful of files you already think are good. It reviews against those, not some
-model's idea of "best practice." So it catches the stuff that actually bugs *you*: premature abstractions,
-cute one-liners with a bug hiding in them, helpers someone reinvented. Then it points at the boring thing
-they should've used.
+- **before you code** — [`stupify prime`](#prime-your-agent-instant-local-no-servers) seeds every Claude Code session with your taste, so the agent writes to your standard from line one.
+- **after you PR** — the reviewer reads every PR on [Codex](https://github.com/openai/codex) against that *same* taste and flags what drifted.
+
+You encode your taste once — a `CORPUS.md` of files you already think are good (or a [taste pack](#taste-packs)) — and stupify enforces it going in and coming out. Not some model's idea of "best practice." So it catches the stuff that actually bugs *you*: premature abstractions, cute one-liners with a bug hiding in them, helpers someone reinvented. Then it points at the boring thing they should've used.
 
 Most AI reviewers carpet-bomb your PR with `consider renaming this`. stupify stays quiet until it finds
 something real, says it in one sentence, and shuts up.
@@ -37,17 +37,28 @@ something real, says it in one sentence, and shuts up.
 
 ### What you get
 
-- **Your taste, not the model's.** Every diff is judged against a `CORPUS.md` — either a **taste pack** ("review my code like dtolnay / DHH / antirez …", picked in the setup) or your own best files. Nothing to write to start.
+- **Your taste, not the model's.** Everything is judged against a `CORPUS.md` — a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files. Nothing to write to start.
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
+- **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
 - **It's funny.** `oof, yeah this'll break:`. Turn it off if you hate joy.
 
-Write down your taste once. It does the rest.
+## Prime your agent (instant, local, no servers)
 
-## Get started (~60 seconds)
+The best slop is the slop never written. `prime` wires a Claude Code [SessionStart hook](https://docs.claude.com/en/docs/claude-code/hooks) that injects your taste into every session — so the agent holds your standard *before* it touches a line. Pure file read, ~30ms, no model call.
 
-stupify rides [exe.dev](https://exe.dev): from your laptop, **one command** provisions a VM that reviews your
-repo. No API keys, no tokens — you never even SSH anywhere.
+```bash
+bunx @stupify/cli taste --pack sindre-sorhus,zod   # pick the code yours should look like
+bunx @stupify/cli prime --install                  # every Claude Code session now opens knowing it
+```
+
+That's it. Open Claude Code in any repo and it's already primed. A repo's own `.review/` wins; otherwise it
+falls back to the taste you assembled. `bunx @stupify/cli prime --uninstall` removes the hook cleanly.
+
+## Add the reviewer (rides exe.dev — no keys, no servers *you* run)
+
+From your laptop, **one command** provisions a VM that reviews your repo's PRs. No API keys, no tokens — you
+never even SSH anywhere.
 
 ```bash
 bunx @stupify/cli
@@ -60,32 +71,44 @@ bunx @stupify/cli
 └  stupify is provisioned for acme/widgets 👀
 ```
 
-New to exe.dev? `ssh exe.dev` to onboard and link GitHub at [exe.dev/integrations](https://exe.dev/integrations)
-— both one-time, both painless. Then the fun part: **pick whose code yours should look like.** The setup asks,
-and you choose a [taste pack](packs) — review like [dtolnay](packs/dtolnay.md), [DHH](packs/dhh.md),
-[antirez](packs/antirez.md), [the perf pack](packs/jarred-sumner.md), and [more](packs) — or bring your own by
-copying [`.review/`](.review) into your repo and pointing `CORPUS.md` at the files you *wish* all your code
-looked like (it overrides the pack). Then just **open a PR** — stupify reviews every non-draft, non-bot PR in
-~60s, no labels or workflows to wire up. (Want manual control? `SCOPE=label` flips it to opt-in: only PRs you
-tag get reviewed.)
+New to [exe.dev](https://exe.dev)? `ssh exe.dev` to onboard and link GitHub at
+[exe.dev/integrations](https://exe.dev/integrations) — both one-time, both painless. Then just **open a PR** —
+stupify reviews every non-draft, non-bot PR in ~60s, no labels or workflows to wire up. (Want manual control?
+`SCOPE=label` flips it to opt-in: only PRs you tag get reviewed.)
 
 ```bash
 bunx @stupify/cli <owner/repo>          # provision for a specific repo
-bunx @stupify/cli setup                 # install on this machine instead of a VM
+bunx @stupify/cli setup                 # run the reviewer on this machine instead of a VM
 ssh exe.dev rm stupify-<owner>-<repo>   # tear it down
 ```
+
+## Taste packs
+
+Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a new hire at and review (and
+write) like them — or compose several:
+
+[dtolnay](packs/dtolnay.md) · [DHH](packs/dhh.md) · [antirez](packs/antirez.md) ·
+[Sindre Sorhus](packs/sindre-sorhus.md) · [Rich Harris](packs/rich-harris.md) ·
+[zod](packs/zod.md) · [Mitchell Hashimoto](packs/mitchell-hashimoto.md) ·
+[Tanner Linsley](packs/tanner-linsley.md) · [Simon Willison](packs/simon-willison.md) ·
+[Anton Kropp](packs/anton-kropp.md) · [the perf pack](packs/jarred-sumner.md) · [browse all →](packs)
+
+Each pack is concrete principles plus commit-pinned exemplar files. Or bring your own: drop a
+[`.review/`](.review) in your repo and point `CORPUS.md` at the files you *wish* all your code looked like (it
+always wins over a pack). stupify dogfoods this — its own [`.review/CORPUS.md`](.review/CORPUS.md) is real.
 
 ## How it works
 
 ```
-cron (~60s) → review-sweep.ts → codex exec → gh pr comment
-  refresh checkout · list open PRs (skip drafts/bots) · skip already-reviewed heads
-  feed the PR's thread back as memory · review against .review/* · post
+prime   Claude Code SessionStart hook → bun ~/.stupify/prime.ts → inject .review/ (rubric + corpus)
+review  cron (~60s) → review-sweep.ts → codex exec → gh pr comment
+          refresh checkout · list open PRs (skip drafts/bots) · skip already-reviewed heads
+          feed the PR's thread back as memory · review against .review/* · post
 ```
 
-The CLI (`src/cli.ts`) provisions; the engine (`src/review-sweep.ts`, dependency-free Bun) does the sweep;
-your taste is either a [pack](packs) the setup assembled or a `.review/` in the repo it judges (which wins if
-present). The whole design — including why it *remembers* instead of debouncing — is in
+Both halves read the same `.review/` (a repo's own wins; else the pack taste you assembled). The CLI
+(`src/cli.ts`) sets things up; the engines (`src/prime.ts` and `src/review-sweep.ts`) are dependency-free Bun.
+The whole design — including why it *remembers* instead of debouncing — is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## License
