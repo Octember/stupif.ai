@@ -82,9 +82,15 @@ write) like them — or compose several:
 [Tanner Linsley](packs/tanner-linsley.md) · [Simon Willison](packs/simon-willison.md) ·
 [devshorts](packs/devshorts.md) · [Jarred Sumner](packs/jarred-sumner.md) · [browse all →](packs)
 
-Each pack is concrete principles plus commit-pinned exemplar files. Or bring your own: drop a
-[`.review/`](.review) in your repo and point `CORPUS.md` at the files you *wish* all your code looked like (it
-always wins over a pack). stupify dogfoods this — its own [`.review/CORPUS.md`](.review/CORPUS.md) is real.
+Each pack is concrete principles plus commit-pinned exemplar files. Or **bring your own** — point stupify at
+the files you *wish* all your code looked like and it scaffolds a `.review/` in your repo:
+
+```bash
+bunx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each
+```
+
+A repo's own `.review/` always wins over a pack. stupify dogfoods this — its own
+[`.review/CORPUS.md`](.review/CORPUS.md) is real.
 
 ## How it works
 

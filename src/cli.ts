@@ -185,11 +185,11 @@ async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
     note(
       [
         `no packs picked. taste packs seed a global corpus at ${pc.cyan(join(HOME, '.review'))}.`,
-        `for YOUR-OWN-codebase taste, add a ${pc.cyan('.review/')} to a repo instead ${pc.dim('(a repo .review/ always wins)')}.`,
+        `want YOUR OWN code as the standard? ${pc.cyan('stupify init <your-best-files>')} scaffolds a ${pc.cyan('.review/')} in your repo ${pc.dim('(it always wins over a pack)')}.`,
       ].join('\n'),
       'nothing to assemble',
     )
-    outro(pc.dim('pass --pack <id> for a taste pack, or bring your own .review/.'))
+    outro(pc.dim('pass --pack <id> for a pack, or `stupify init` for your own taste.'))
     return
   }
   assembleReview(packs)
@@ -204,6 +204,87 @@ async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
     'taste ready',
   )
   outro(pc.green('your taste is set 🎯'))
+}
+
+// Fence language tag from a file extension — best-effort, blank when unknown (still renders fine).
+const LANG: Record<string, string> = {
+  ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js', py: 'python', rb: 'ruby', go: 'go',
+  rs: 'rust', java: 'java', kt: 'kotlin', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cs: 'csharp', zig: 'zig',
+  swift: 'swift', php: 'php', ex: 'elixir', exs: 'elixir', scala: 'scala', sh: 'bash', sql: 'sql',
+}
+const langOf = (p: string): string => LANG[p.split('.').pop()?.toLowerCase() ?? ''] ?? ''
+
+// The repo root (where the reviewer's checkout keeps .review/), so `init` from a subdir still lands at the top.
+function repoRoot(): string {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
+  return r.status === 0 ? (r.stdout ?? '').trim() || process.cwd() : process.cwd()
+}
+
+const CORPUS_CAP = 150 // lines: a single exemplar past this gets truncated (a corpus is shapes, not whole files)
+
+// `stupify init [files…]` — scaffold a BYO `.review/` in THIS repo from your own best files (no famous-coder
+// pack). Writes the rubric + review spec (defaults, kept if already present) and builds CORPUS.md by inlining
+// each file you name with a one-line "why" for you to fill — the only hand-work, and the irreducible taste part.
+async function init(argv: { files: string[]; force: boolean }): Promise<void> {
+  console.clear()
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — encode your own taste (.review/ in this repo)'))
+  const dir = join(repoRoot(), '.review')
+  mkdirSync(dir, { recursive: true })
+
+  // rubric + review spec: defaults, written only if missing so we never clobber edits
+  for (const f of ['RUBRIC.md', 'REVIEW-PROMPT.md']) {
+    if (!existsSync(join(dir, f))) copyFileSync(join(PKG_ROOT, '.review', f), join(dir, f))
+  }
+
+  const corpusPath = join(dir, 'CORPUS.md')
+  if (existsSync(corpusPath) && !argv.force) {
+    note(`${pc.cyan(corpusPath)} already exists — re-run with ${pc.cyan('--force')} to rebuild it (you'll re-add your “why” lines).`, 'corpus exists')
+    outro(pc.dim('nothing overwritten.'))
+    return
+  }
+
+  if (argv.files.length === 0) {
+    copyFileSync(join(PKG_ROOT, '.review', 'CORPUS.template.md'), corpusPath)
+    note(
+      [
+        `scaffolded ${pc.cyan(`${dir}/`)} ${pc.dim('(RUBRIC + REVIEW-PROMPT + a CORPUS template)')}.`,
+        `fill it straight from your best files: ${pc.cyan('stupify init src/foo.ts src/bar.ts')}`,
+        `…or edit ${pc.cyan('CORPUS.md')} by hand.`,
+      ].join('\n'),
+      'next',
+    )
+    outro(pc.green('your .review/ is ready 🎯'))
+    return
+  }
+
+  const missing = argv.files.filter((f) => !existsSync(f))
+  if (missing.length) die(`file(s) not found: ${pc.bold(missing.join(', '))}`)
+
+  const picked = argv.files.map((f) => {
+    const content = readFileSync(f, 'utf8').replace(/\n+$/, '')
+    const total = content.split('\n').length
+    const body = total > CORPUS_CAP ? content.split('\n').slice(0, CORPUS_CAP).join('\n') : content
+    const tail = total > CORPUS_CAP ? `\n\n_(first ${CORPUS_CAP} of ${total} lines — trim to the part that matters)_` : ''
+    return `### \`${f}\` — ⟨why is this good? one line — e.g. "fail-fast at the boundary, types make illegal states unrepresentable"⟩\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
+  })
+  const header = `# Good-code reference — your corpus\n\nHand-picked from this repo: the code you wish all your code looked like. Replace each ⟨why⟩ with one line on what makes that file the standard — that one line is the taste the reviewer and prime hold every diff to.\n\n---\n\n`
+  writeFileSync(corpusPath, `${header}${picked.join('\n\n')}\n`)
+
+  const truncated = argv.files.filter((f) => readFileSync(f, 'utf8').split('\n').length > CORPUS_CAP)
+  note(
+    [
+      `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s).`,
+      truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')} — a tighter exemplar reads better`) : '',
+      ``,
+      `${pc.bold('1.')} edit the ${pc.cyan('⟨why⟩')} line on each block ${pc.dim('(that one line is your taste)')}`,
+      `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('— version it with your code')}`,
+      `${pc.bold('3.')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime your agent against it')}`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    'your taste is scaffolded',
+  )
+  outro(pc.green("fill in the whys and you're set 🎯"))
 }
 
 async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: string }): Promise<void> {
@@ -623,14 +704,15 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
-  stupify taste [--pack a,b]  pick the code yours should look like (assembles ~/.stupify/.review)
+  stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review) — packs below
+  stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
   stupify prime --install     prime Claude Code with your taste every session (adds a SessionStart hook)
   stupify prime --uninstall   remove that hook
   stupify --help
 
 ${pc.dim('Flags')}
   --host <h.int.exe.xyz>  integration host (for 'setup')
-  --pack <a,b,...>        taste packs to review against (e.g. devshorts,zod); 'own' = bring your own .review/
+  --pack <a,b,...>        taste packs: ${PACKS.map((p) => p.id).join(', ')}
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
 ${pc.dim("Provisioning rides exe.dev — onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)
@@ -652,6 +734,8 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   help()
 } else if (cmd === 'taste') {
   await taste({ pack, yes })
+} else if (cmd === 'init') {
+  await init({ files: positional.slice(1), force: args.includes('--force') })
 } else if (cmd === 'prime') {
   if (args.includes('--install')) await installPrimeHook({ pack })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
