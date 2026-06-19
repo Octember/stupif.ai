@@ -292,24 +292,47 @@ function markersFor(pr: Pr): { mark: string; failMark: string } {
   }
 }
 
+/** The taste prefix: instructions + the spec, rubric, and corpus INDEX, inlined verbatim. This is byte-identical
+ *  for every PR in a repo, so it forms a stable prompt PREFIX the provider caches across diff threads — you pay
+ *  full price for it once, then cache-read rates on every later PR. (If codex `Read` these files mid-loop instead,
+ *  they'd arrive as tool results after model-chosen steps that vary per run, and wouldn't cache.) We inline the
+ *  corpus INDEX only — its exemplars stay commit-pinned links the model opens on demand, so a review never pays to
+ *  read the whole corpus. Keep ALL per-PR tokens (diff target, marker, memory) OUT of here — they go in the tail. */
+function tastedPrefix(cfg: Config): string {
+  const read = (f: string) => readFileSync(join(cfg.reviewDir, f), 'utf8').trim()
+  return `You are a code reviewer running in an automated sweep (you have gh + git; no token needed). DO NOT modify any code.
+Everything down to the "THIS PR" line is your fixed spec and taste — identical for every PR, so treat it as standing reference.
+
+===== REVIEW SPEC (format + rules) =====
+${read('REVIEW-PROMPT.md')}
+
+===== RUBRIC (what counts as slop) =====
+${read('RUBRIC.md')}
+
+===== CORPUS (good-code reference; the links are commit-pinned — open one ONLY when a finding needs to cite it) =====
+${read('CORPUS.md')}`
+}
+
 function reviewPrompt(cfg: Config, pr: Pr, priorThread: string): string {
   const { mark } = markersFor(pr)
   const outPath = `/tmp/review-${pr.number}.md`
-  const dir = cfg.reviewDir
   const memory = priorThread
     ? `\n\n## Prior reviews on this PR (your memory)
 This is the existing review conversation — your past reviews and the author's replies. You are CONTINUING it,
-not starting fresh. Apply ${dir}/REVIEW-PROMPT.md's "Prior reviews on this PR" rules: don't re-raise resolved or
+not starting fresh. Apply the spec's "Prior reviews on this PR" rules: don't re-raise resolved or
 reasoned-declined items, report only what's genuinely new, and converge (post the one-line "no new issues"
 and stop) if nothing new remains.
 
 ${priorThread}`
     : ''
-  return `You are a code reviewer running in an automated sweep (you have gh + git; no token needed). DO NOT modify any code.
-Read ${dir}/REVIEW-PROMPT.md and ${dir}/RUBRIC.md (the spec + rubric) and ${dir}/CORPUS.md (the curated good-code reference; open the live files it points at as needed). Then:
+  // Stable prefix first (cached across PRs); then the ONLY per-PR tokens — diff target, output marker, memory.
+  return `${tastedPrefix(cfg)}
+
+===== THIS PR (the only part that changes per run) =====
+Review ONE pull request, per the spec and rubric above:
 1. Get the diff:  gh pr diff ${pr.number} --repo ${cfg.slug}
-2. Review it per the spec — catch bugs / type-lies / dead-code / footguns AND reinvents-primitive / slop, each citing the corpus primitive it should reuse; sort worst-first.
-3. Write the review to ${outPath}, formatted EXACTLY per ${dir}/REVIEW-PROMPT.md's 'Comment format' section (it owns the format — opener, finding blocks, attribution). END the file with exactly this line: ${mark}
+2. Review it — catch bugs / type-lies / dead-code / footguns AND reinvents-primitive / slop, each citing the corpus primitive it should reuse; sort worst-first.
+3. Write the review to ${outPath}, formatted EXACTLY per the spec's 'Comment format' section (it owns the format — opener, finding blocks, attribution). END the file with exactly this line: ${mark}
 4. Post it:  gh pr comment ${pr.number} --repo ${cfg.slug} --body-file ${outPath}
 Keep it terse; no preamble.${memory}`
 }
