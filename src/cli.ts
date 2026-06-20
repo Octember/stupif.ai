@@ -28,17 +28,17 @@ interface Pack {
   label: string
 }
 const PACKS: Pack[] = [
-  { id: 'sindre-sorhus', label: 'Sindre Sorhus — one file, one job' },
-  { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate' },
-  { id: 'rich-harris', label: 'Rich Harris / Svelte — compiler-grade precision' },
-  { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack — types forbid bad states' },
-  { id: 'simon-willison', label: 'Simon Willison — one concept per file' },
-  { id: 'dtolnay', label: 'David Tolnay — the API that disappears (Rust)' },
-  { id: 'antirez', label: 'antirez / Redis — comments that earn their keep (C)' },
-  { id: 'dhh', label: 'DHH / Rails — controllers that tell the story (Ruby)' },
-  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty — documented tradeoffs' },
-  { id: 'devshorts', label: 'devshorts — DI + branded types' },
-  { id: 'jarred-sumner', label: 'Jarred Sumner / Bun — perf as correctness' },
+  { id: 'sindre-sorhus', label: 'Sindre Sorhus · one file, one job' },
+  { id: 'zod', label: 'Colin McDonnell / Zod · parse, don’t validate' },
+  { id: 'rich-harris', label: 'Rich Harris / Svelte · compiler-grade precision' },
+  { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack · types forbid bad states' },
+  { id: 'simon-willison', label: 'Simon Willison · one concept per file' },
+  { id: 'dtolnay', label: 'David Tolnay · the API that disappears (Rust)' },
+  { id: 'antirez', label: 'antirez / Redis · comments that earn their keep (C)' },
+  { id: 'dhh', label: 'DHH / Rails · controllers that tell the story (Ruby)' },
+  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty · documented tradeoffs' },
+  { id: 'devshorts', label: 'devshorts · DI + branded types' },
+  { id: 'jarred-sumner', label: 'Jarred Sumner / Bun · perf as correctness' },
 ]
 
 function bail<T>(value: T | symbol): asserts value is T {
@@ -127,14 +127,14 @@ function installCron(opts: { ghHost: string }): string {
   const wrote = spawnSync('crontab', ['-'], { input: next, encoding: 'utf8', timeout: 8_000 })
   if (wrote.status !== 0) {
     const why = (wrote.stderr ?? '').trim() || wrote.error?.message || (wrote.signal ? `timed out (${wrote.signal})` : 'crontab exited non-zero')
-    throw new Error(`couldn't install the cron job (${why}). your config is saved — add the line yourself:\n  ${line}`)
+    throw new Error(`couldn't install the cron job (${why}). your config is saved. add the line yourself:\n  ${line}`)
   }
   return line
 }
 
 // The short human label for a set of picked packs, e.g. "Sindre Sorhus + devshorts" — for plan/success notes.
 const tasteLabel = (packs: string[]): string =>
-  PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+  PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' · ')[0]).join(' + ')
 
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
 // no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
@@ -143,13 +143,13 @@ async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<stri
     const requested = opts.packArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     const known = (id: string) => PACKS.some((p) => p.id === id)
     const unknown = requested.filter((id) => id !== 'own' && !known(id))
-    if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))} — valid: ${PACKS.map((p) => p.id).join(', ')}`)
+    if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))}, valid: ${PACKS.map((p) => p.id).join(', ')}`)
     return requested.filter((id) => id !== 'own' && known(id))
   }
   if (opts.yes) return ['sindre-sorhus']
   if (!process.stdin.isTTY) return [] // non-interactive (CI, scripts, the install hook): never block on a picker
   const choice = await multiselect({
-    message: 'Whose code should yours look like? (pick any — or your own)',
+    message: 'Whose code should yours look like? (pick any, or your own)',
     options: [
       ...PACKS.map((p) => ({ value: p.id, label: p.label })),
       { value: 'own', label: '🧠 my own codebase', hint: 'point CORPUS.md at your files yourself' },
@@ -179,7 +179,7 @@ function assembleReview(packs: string[]): void {
 // so you can set taste once without installing the cron reviewer.
 async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — pick the code yours should look like'))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · pick the code yours should look like'))
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
   if (packs.length === 0) {
     note(
@@ -197,9 +197,9 @@ async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
   note(
     [
       `assembled ${pc.cyan(join(HOME, '.review'))} against ${pc.bold(tasteLine)}.`,
-      `your global taste — read by the reviewer AND ${pc.cyan('stupify prime')} in any repo without its own .review/.`,
+      `your global taste, read by the reviewer AND ${pc.cyan('stupify prime')} in any repo without its own .review/.`,
       ``,
-      `${pc.bold('next:')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime Claude Code with it every session')}`,
+      `${pc.bold('next:')} ${pc.cyan('stupify prime --install')} ${pc.dim('· prime Claude Code with it every session')}`,
     ].join('\n'),
     'taste ready',
   )
@@ -226,7 +226,7 @@ const CORPUS_CAP = 150 // lines: a single exemplar past this gets truncated (a c
 // `stupify init [files…]` — scaffold a BYO `.review/` in THIS repo from your own best files (no famous-coder
 // pack). Writes the rubric + review spec (defaults, kept if already present) and builds CORPUS.md by inlining
 // each file you name with a one-line "why" for you to fill — the only hand-work, and the irreducible taste part.
-const WHY_PLACEHOLDER = '⟨why is this good? one line — e.g. "fail-fast at the boundary"⟩'
+const WHY_PLACEHOLDER = '⟨why is this good? one line, e.g. "fail-fast at the boundary"⟩'
 
 async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   // validate paths FIRST — before any UI or writes — so a bad path fails clean (no open frame, no partial .review/)
@@ -234,7 +234,7 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   if (missing.length) die(`file(s) not found: ${missing.join(', ')} (paths are relative to your current directory)`)
 
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — encode your own taste (.review/ in this repo)'))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · encode your own taste (.review/ in this repo)'))
   const { root, inGit } = repoRoot()
   const dir = join(root, '.review')
   mkdirSync(dir, { recursive: true })
@@ -249,8 +249,8 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   if (corpusExists && !argv.force) {
     note(
       argv.files.length
-        ? `${pc.cyan(corpusPath)} already exists. ${pc.cyan('--force')} rebuilds it from ${pc.bold(argv.files.join(', '))} ${pc.dim('— your filled-in “why” lines are kept')}.`
-        : `${pc.cyan(corpusPath)} already exists — name files + ${pc.cyan('--force')} to rebuild it, or edit it by hand.`,
+        ? `${pc.cyan(corpusPath)} already exists. ${pc.cyan('--force')} rebuilds it from ${pc.bold(argv.files.join(', '))} ${pc.dim('· your filled-in “why” lines are kept')}.`
+        : `${pc.cyan(corpusPath)} already exists. name files + ${pc.cyan('--force')} to rebuild it, or edit it by hand.`,
       'corpus exists',
     )
     outro(pc.dim('nothing overwritten.'))
@@ -293,18 +293,18 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     return `### \`${rel}\` — ${priorWhy.get(rel) ?? WHY_PLACEHOLDER}\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
   })
   // a path outside the repo would commit a non-portable ../ reference — reject it rather than write a broken corpus
-  if (outside.length) die(`outside the repo root (${root}): ${outside.join(', ')} — name files inside the repo`)
+  if (outside.length) die(`outside the repo root (${root}): ${outside.join(', ')}. name files inside the repo`)
   const header = `# Good-code reference — your corpus\n\nHand-picked from this repo: the code you wish all your code looked like. Replace each ⟨why⟩ with one line on what makes that file the standard — that one line is the taste the reviewer and prime hold every diff to.\n\n---\n\n`
   writeFileSync(corpusPath, `${header}${picked.join('\n\n')}\n`)
 
   note(
     [
       `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s)${priorWhy.size ? pc.dim(` (kept ${priorWhy.size} of your “why” lines)`) : ''}.`,
-      truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')} — a tighter exemplar reads better`) : '',
+      truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')}, a tighter exemplar reads better`) : '',
       ``,
       `${pc.bold('1.')} edit the ${pc.cyan('⟨why⟩')} line on each block ${pc.dim('(that one line is your taste)')}`,
-      inGit ? `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('— version it with your code')}` : '',
-      `${pc.bold(inGit ? '3.' : '2.')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime your agent against it')}`,
+      inGit ? `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('· version it with your code')}` : '',
+      `${pc.bold(inGit ? '3.' : '2.')} ${pc.cyan('stupify prime --install')} ${pc.dim('· prime your agent against it')}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -315,7 +315,7 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
 
 async function setup(argv: { repo?: string; host?: string; codexHost?: string; yes: boolean; pack?: string }): Promise<void> {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — sounds dumb, reviews sharp'))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · sounds dumb, reviews sharp'))
 
   // 1. tools
   const s = progress('checking your tools')
@@ -328,7 +328,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     )
     process.exit(1)
   }
-  s.stop(pc.green('bun, gh, codex, git') + pc.dim(' — all here'))
+  s.stop(pc.green('bun, gh, codex, git') + pc.dim(' · all here'))
 
   // 2. repo (auto-detect, else ask)
   let repo = argv.repo ?? ''
@@ -356,7 +356,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     repo = answer
   }
   repo = normalizeRepo(repo)
-  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo — expected owner/repo (e.g. acme/widgets)`)
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo, expected owner/repo (e.g. acme/widgets)`)
 
   // 3. integration host (exe.dev) — can't be detected
   let host = argv.host ?? process.env.GH_HOST ?? ''
@@ -369,7 +369,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     bail(answer)
     host = answer.trim()
   }
-  if (host && !validHost(host)) die(`'${host}' is not a valid host — hostname characters only (e.g. acme.int.exe.xyz)`)
+  if (host && !validHost(host)) die(`'${host}' is not a valid host, hostname characters only (e.g. acme.int.exe.xyz)`)
 
   // 3.5 taste — pick a pack (or your own code)
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -383,7 +383,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
       `${pc.dim('repo  ')} ${pc.bold(repo)}`,
       `${pc.dim('taste ')} ${pc.bold(tasteLine)}`,
       host
-        ? `${pc.dim('auth  ')} exe.dev integration ${pc.bold(host)} ${pc.dim('— exe-llm gateway, no keys')}`
+        ? `${pc.dim('auth  ')} exe.dev integration ${pc.bold(host)} ${pc.dim('· exe-llm gateway, no keys')}`
         : `${pc.dim('auth  ')} your own gh + codex ${pc.dim('(run `gh auth login` first)')}`,
       `${pc.dim('cadence')} every ~60s via cron`,
       `${pc.dim('home  ')} ${HOME}`,
@@ -404,7 +404,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
   mkdirSync(STATE, { recursive: true })
   copyFileSync(join(PKG_DIR, 'review-sweep.ts'), join(HOME, 'review-sweep.ts'))
   assembleReview(packs)
-  const cfg = [`REPO_SLUG=${repo}`, host ? `GH_HOST=${host}` : '', '# tune anything else here — see the README']
+  const cfg = [`REPO_SLUG=${repo}`, host ? `GH_HOST=${host}` : '', '# tune anything else here, see the README']
     .filter(Boolean)
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
@@ -425,7 +425,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
         `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
         `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
         ``,
-        `want your OWN taste instead? add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — it overrides the pack.`,
+        `want your OWN taste instead? add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, it overrides the pack.`,
         preview,
       ].join('\n'),
       "you're set",
@@ -492,7 +492,7 @@ const PRIME_TARGETS: PrimeTarget[] = [
     file: codexHooksPath,
     matcher: 'startup|resume',
     installed: () => Bun.which('codex') !== null || existsSync(process.env.CODEX_HOME ?? join(homedir(), '.codex')),
-    trust: `run ${pc.cyan('/hooks')} in Codex once to trust it — Codex won't run an untrusted hook`,
+    trust: `run ${pc.cyan('/hooks')} in Codex once to trust it. Codex won't run an untrusted hook`,
   },
 ]
 
@@ -516,7 +516,7 @@ function mergeHook(file: string, matcher: string, command: string): { already: b
   try {
     settings = readSettings(file)
   } catch {
-    die(`couldn't parse ${file} — fix or remove it, then retry (left it untouched)`)
+    die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
   const hooks = (settings.hooks ??= {}) as Record<string, HookEntry[]>
   const sessionStart = (hooks.SessionStart ??= [])
@@ -535,7 +535,7 @@ function removeHook(file: string): { removed: boolean } {
   try {
     settings = readSettings(file)
   } catch {
-    die(`couldn't parse ${file} — fix or remove it, then retry (left it untouched)`)
+    die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
   const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
   if (!hooks?.SessionStart) return { removed: false }
@@ -551,7 +551,7 @@ function removeHook(file: string): { removed: boolean } {
 async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
   console.clear()
   const targets = selectTargets(argv.agent)
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` — prime ${targets.map((t) => t.label).join(' + ')} with your taste`))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` · prime ${targets.map((t) => t.label).join(' + ')} with your taste`))
 
   // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
@@ -568,7 +568,7 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
       const tasteLine = tasteLabel(packs)
       log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
     } else if (!primed) {
-      log.warn(`no taste yet — the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`)
+      log.warn(`no taste yet. the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`)
     }
   }
 
@@ -591,7 +591,7 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
       ``,
       primed
         ? `every new session now opens primed with your taste ${pc.dim('(~30ms, pure file read)')}.`
-        : `wired but ${pc.bold('dormant')} — it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
+        : `wired but ${pc.bold('dormant')}. it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
       ``,
       `${pc.dim('undo:')} ${pc.cyan('stupify prime --uninstall')}`,
     ].join('\n'),
@@ -602,7 +602,7 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
 
 function uninstallPrimeHook(): void {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — remove the prime hooks'))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · remove the prime hooks'))
   // Sweep every known target, not just the ones currently installed — so an uninstall after the agent is gone
   // (or after switching machines) still cleans up any hook we left behind.
   const removedFrom = PRIME_TARGETS.filter((t) => removeHook(t.file()).removed).map((t) => t.label)
@@ -620,7 +620,7 @@ function uninstallPrimeHook(): void {
 function run(dry: boolean): void {
   const sweep = join(HOME, 'review-sweep.ts')
   if (!existsSync(sweep)) {
-    log.error(`not set up yet — run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`)
+    log.error(`not set up yet. run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`)
     process.exit(1)
   }
   const env = { ...process.env, ...(dry ? { DRY_RUN: '1' } : {}) }
@@ -693,17 +693,17 @@ trust_level = "trusted"
 
 async function provision(argv: { repo?: string; yes: boolean; pack?: string }): Promise<void> {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — provision a reviewer on exe.dev'))
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · provision a reviewer on exe.dev'))
 
   // 1. onboarded to exe.dev?
   const s = progress('checking exe.dev')
   const who = exe(['whoami'])
   if (!who.ok) {
     s.stop(pc.red('not connected to exe.dev'))
-    note(`onboarding is one step — run this once, then re-run stupify:\n\n  ${pc.cyan('ssh exe.dev')}`, 'connect exe.dev')
+    note(`onboarding is one step. run this once, then re-run stupify:\n\n  ${pc.cyan('ssh exe.dev')}`, 'connect exe.dev')
     process.exit(1)
   }
-  s.stop(pc.green('exe.dev ready') + pc.dim(` — ${(who.out.match(/[\w.+-]+@[\w.-]+/) ?? [''])[0]}`))
+  s.stop(pc.green('exe.dev ready') + pc.dim(` · ${(who.out.match(/[\w.+-]+@[\w.-]+/) ?? [''])[0]}`))
 
   // 2. repo (auto-detect, else ask)
   let repo = argv.repo ?? ''
@@ -729,7 +729,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     repo = answer
   }
   repo = normalizeRepo(repo)
-  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo — expected owner/repo (e.g. acme/widgets)`)
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo, expected owner/repo (e.g. acme/widgets)`)
 
   // 2.5 taste — pick a pack (or your own code); the VM installs it on first boot
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -754,13 +754,13 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   // The integration name comes back from the exe.dev API and gets baked into the VM's first-boot setup SCRIPT
   // (which runs in a shell) and into the host. Refuse anything with shell metacharacters before interpolating it.
   if (!integration || !validHost(integration)) {
-    die(`exe.dev returned an unexpected integration name${integration ? ` (${integration})` : ''} — refusing to build a setup script with it`)
+    die(`exe.dev returned an unexpected integration name${integration ? ` (${integration})` : ''}. refusing to build a setup script with it`)
   }
   const host = `${integration}.int.exe.xyz`
   // Codex on the VM runs on the no-key exe-llm gateway, fronted by the `llm` integration (auto-installed for most
   // exe.dev users). We point Codex at it in setup and attach it to the VM below; without it every review 401s.
   const llm = llmIntegrationFor()
-  if (llm && !validHost(llm)) die(`exe.dev returned an unexpected exe-llm integration name (${llm}) — refusing to use it`)
+  if (llm && !validHost(llm)) die(`exe.dev returned an unexpected exe-llm integration name (${llm}). refusing to use it`)
   const tasteLine = packs.length
     ? tasteLabel(packs)
     : 'your own codebase'
@@ -771,7 +771,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
       `${pc.dim('repo ')}  ${pc.bold(repo)}`,
       `${pc.dim('taste')}  ${pc.bold(tasteLine)}`,
       `${pc.dim('vm   ')}  a small always-on exe.dev VM on your account`,
-      `${pc.dim('auth ')}  integration ${pc.bold(integration)} ${pc.dim('— no keys, no tokens')}`,
+      `${pc.dim('auth ')}  integration ${pc.bold(integration)} ${pc.dim('· no keys, no tokens')}`,
     ].join('\n'),
     'plan',
   )
@@ -827,11 +827,11 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
         `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
         `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
         ``,
-        `want your OWN taste? add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — it overrides the pack.`,
+        `want your OWN taste? add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, it overrides the pack.`,
       ]
     : [
-        `${pc.yellow('⚠ dormant')} — you chose your own taste, so the reviewer no-ops every sweep until ${pc.bold(repo)} has a ${pc.cyan('.review/')}.`,
-        `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — copy this repo's, point CORPUS.md at YOUR best files`,
+        `${pc.yellow('⚠ dormant')}. you chose your own taste, so the reviewer no-ops every sweep until ${pc.bold(repo)} has a ${pc.cyan('.review/')}.`,
+        `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, copy this repo's, point CORPUS.md at YOUR best files`,
         `${pc.bold('2.')} push it → stupify reviews every PR in ~60s ${pc.dim('(no labels needed)')}`,
       ]
   note(
@@ -849,14 +849,14 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
 }
 
 function help(): void {
-  console.log(`${pc.bold('stupify')} — a code reviewer that talks like an idiot and catches real bugs
+  console.log(`${pc.bold('stupify')}: a code reviewer that talks like an idiot and catches real bugs
 
 ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify                 provision an exe.dev VM that reviews your repo ${pc.dim('(the magic)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
-  stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review) — packs below
+  stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review); packs below
   stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
   stupify prime --install     prime Claude Code + Codex with your taste every session (SessionStart hook)
   stupify prime --uninstall   remove those hooks
@@ -870,7 +870,7 @@ ${pc.dim('Flags')}
   --force                 ('init') rebuild CORPUS.md even if it exists (your filled-in "why" lines are kept)
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
-${pc.dim("Provisioning rides exe.dev — onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)
+${pc.dim("Provisioning rides exe.dev. Onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)
 }
 
 // --- routing ---
