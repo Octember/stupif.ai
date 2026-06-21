@@ -98,12 +98,17 @@ test('isNoopReview: the token and finding-free text both converge; a real findin
   expect(isNoopReview(finding)).toBe(false) // a severity emoji / `· conf` / `→ Fix:` means there IS something to say
 })
 
-test('noopNote carries the convergence text, the noop tag, AND the per-head marker', () => {
-  const note = noopNote(pr(7, 'd'.repeat(40)))
-  expect(note).toContain('no new blocking issues ✅')
-  expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
-  expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it
-  expect(isNoopReview(note)).toBe(true) // the runner's own note must read as a no-op, never as findings
+test('noopNote: "LGTM" on a first-pass-clean PR, "no new blocking issues" once there were prior findings', () => {
+  const first = noopNote(pr(7, 'd'.repeat(40)), true)
+  const later = noopNote(pr(7, 'd'.repeat(40)), false)
+  expect(first).toContain('LGTM ✅') // saying "no NEW issues" on a first review implies a prior that isn't there
+  expect(first).not.toContain('no new blocking issues')
+  expect(later).toContain('no new blocking issues ✅')
+  for (const note of [first, later]) {
+    expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
+    expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it
+    expect(isNoopReview(note)).toBe(true) // the runner's own note must read as a no-op, never as findings
+  }
 })
 
 test('the no-op token is instructed in the prompt, and adding it kept the prefix stable across PRs', () => {
