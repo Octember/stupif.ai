@@ -369,9 +369,15 @@ export const isFixedReview = (review: string): boolean => stripWrap(review) === 
 // our content by marker, not author (same trick as the head marker).
 const STUPIFY_TAG = '<!-- stupify -->'
 
-// Post findings as ONE non-blocking COMMENT review: each finding becomes an inline comment anchored to its diff
-// line (a resolvable thread), the body carries the opener + the head marker (dedup). Findings on a line the diff
-// doesn't touch can't be anchored, so they're demoted into the body rather than 422-ing the whole review.
+// One non-blocking COMMENT review: `comments` are inline, each anchored to a diff line (a resolvable thread).
+function submitReview(cfg: Config, pr: Pr, body: string, comments: { path: string; line: number; side: 'RIGHT'; body: string }[]): { ok: boolean; combined: string } {
+  const payload = JSON.stringify({ event: 'COMMENT', commit_id: pr.headRefOid, body, comments })
+  return exec('gh', ['api', `repos/${cfg.slug}/pulls/${pr.number}/reviews`, '--method', 'POST', '--input', '-'], { input: payload })
+}
+
+// Post findings as ONE COMMENT review: each finding becomes an inline comment anchored to its diff line (a
+// resolvable thread); the body carries the opener + the head marker (dedup). Findings on a line the diff doesn't
+// touch can't be anchored, so they're demoted into the body rather than 422-ing the whole review.
 function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding[], diff: string): boolean {
   const valid = diffRightLines(diff)
   const inline: { path: string; line: number; side: 'RIGHT'; body: string }[] = []
@@ -380,20 +386,22 @@ function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding
     if (valid.get(f.path)?.has(f.line)) inline.push({ path: f.path, line: f.line, side: 'RIGHT', body: `${f.body}\n${STUPIFY_TAG}` })
     else demoted.push(f.body)
   }
-  const parts = [opener || '👀 a couple things']
-  if (demoted.length > 0) parts.push(`couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`)
-  parts.push(markFor(pr))
-  const payload = JSON.stringify({ event: 'COMMENT', commit_id: pr.headRefOid, body: parts.join('\n\n'), comments: inline })
-  const r = exec('gh', ['api', `repos/${cfg.slug}/pulls/${pr.number}/reviews`, '--method', 'POST', '--input', '-'], { input: payload })
-  if (!r.ok) appendFileSync(LOG, `  postReview #${pr.number} failed: ${r.combined.slice(0, 400)}\n`)
-  return r.ok
+  const head = opener || '👀 a couple things'
+  if (inline.length === 0) return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].join('\n\n'), []).ok
+  const body = demoted.length > 0 ? [head, `couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`, markFor(pr)] : [head, markFor(pr)]
+  const r = submitReview(cfg, pr, body.join('\n\n'), inline)
+  if (r.ok) return true
+  // GitHub rejects the WHOLE review if any single inline anchor is a line it won't accept (a diff edge
+  // diffRightLines didn't catch). Don't lose the findings to one bad line: retry body-only so they still land
+  // (visible, just not inline) instead of failing — and re-failing — every sweep.
+  appendFileSync(LOG, `  postReview #${pr.number} inline rejected, body-only fallback: ${r.combined.slice(0, 200)}\n`)
+  return submitReview(cfg, pr, [head, ...findings.map((f) => f.body), markFor(pr)].join('\n\n'), []).ok
 }
 
 // A bodied-only COMMENT review (no inline comments) — for the one-time `LGTM ✅` on a clean first pass, or to carry
 // a review codex wrote without parseable per-line findings. Body still ends with the head marker for dedup.
 function postNote(cfg: Config, pr: Pr, note: string): boolean {
-  const payload = JSON.stringify({ event: 'COMMENT', commit_id: pr.headRefOid, body: `${note}\n\n${markFor(pr)}` })
-  return exec('gh', ['api', `repos/${cfg.slug}/pulls/${pr.number}/reviews`, '--method', 'POST', '--input', '-'], { input: payload }).ok
+  return submitReview(cfg, pr, `${note}\n\n${markFor(pr)}`, []).ok
 }
 
 // Resolve stupify's open threads when its findings are fixed — the native "this is handled" signal (no note).
@@ -432,7 +440,7 @@ function prReviews(cfg: Config, pr: Pr): PriorState | null {
   const [owner, name] = cfg.slug.split('/')
   const query = `query { repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
     reviews(last: 30) { nodes { body author { login } } }
-    reviewThreads(first: 60) { nodes { id isResolved comments(first: 8) { nodes { body author { login } path line } } } }
+    reviewThreads(first: 100) { nodes { id isResolved comments(first: 8) { nodes { body author { login } path line } } } }
   } } }`
   const r = exec('gh', ['api', 'graphql', '-f', `query=${query}`])
   if (!r.ok) return null
@@ -816,20 +824,34 @@ function failureReason(out: string): string {
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
 
-// Single-flight without flock: O_EXCL create wins atomically; a lock older than 30 min (longer than any
-// possible sweep — codex is capped at 20) is treated as stale from a crashed run and stolen.
+// signal 0 delivers nothing — it just probes whether `pid` is still alive (EPERM = alive but not ours to signal).
+export function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+// Single-flight without flock: O_EXCL create wins atomically. On contention, steal ONLY if the holder is gone —
+// a dead pid (crashed mid-sweep) reclaims immediately; a 6h age backstop covers an unkillable hang. A LIVE holder
+// is never stolen, so a long legitimate sweep can't be run over by the next minute's cron (which would double-post
+// — the per-head marker in prReviews is the final backstop, but not overlapping in the first place is cheaper).
 function acquireLock(path: string): boolean {
   try {
     writeFileSync(path, String(process.pid), { flag: 'wx' })
     return true
   } catch {
     try {
-      if (Date.now() - statSync(path).mtimeMs > 30 * 60_000) {
+      const holder = Number(readFileSync(path, 'utf8').trim())
+      if (!pidAlive(holder) || Date.now() - statSync(path).mtimeMs > 6 * 60 * 60_000) {
         writeFileSync(path, String(process.pid))
         return true
       }
     } catch {
-      /* lock vanished between calls — let the next sweep retry */
+      /* lock vanished/unreadable between calls — let the next sweep retry */
     }
     return false
   }
@@ -847,7 +869,9 @@ function main(): void {
   }
   process.on('exit', () => {
     try {
-      rmSync(lockPath, { force: true })
+      // Only clear the lock if we still hold it. If a later sweep judged us crashed and stole it, deleting it here
+      // would free a lock that another run now owns — letting a third sweep overlap it.
+      if (Number(readFileSync(lockPath, 'utf8').trim()) === process.pid) rmSync(lockPath, { force: true })
     } catch {
       /* best-effort */
     }
