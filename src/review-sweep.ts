@@ -1001,6 +1001,17 @@ function main(): void {
   const reviewedLocal = loadReviewedHeads(reviewedPath(cfg)) // PR -> head already run; catches suppressed no-ops
   const daily = loadDailyCounter(dailyPath(cfg)) // today's review count vs MAX_REVIEWS_PER_DAY
   const commitStatuses = loadCommitStatuses(commitStatusPath(cfg)) // head+context -> last posted payload; avoids append-only status spam
+  const priorByPr = new Map<number, PriorState | null>()
+  for (const pr of queue) {
+    const prior = prReviews(cfg, pr)
+    priorByPr.set(pr.number, prior)
+    if (prior === null) continue
+    const reviewedHead = prior.reviewedHead || reviewedLocal[String(pr.number)] === pr.headRefOid
+    const f = failures[String(pr.number)]
+    const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
+    const dailyBlocked = cfg.maxReviewsPerDay > 0 && !cfg.dryRun && daily.count >= cfg.maxReviewsPerDay
+    if (!reviewedHead && !recentlyFailed && !dailyBlocked) setCommitStatus(cfg, commitStatuses, pr, 'pending', 'queued for stupify review')
+  }
 
   let reviewed = 0
   let tokens = 0
@@ -1016,7 +1027,7 @@ function main(): void {
       break
     }
     // What stupify has already said here — read from the reviews/threads connection (findings are inline threads now).
-    const prior = prReviews(cfg, pr)
+    const prior = priorByPr.get(pr.number) ?? null
     if (prior === null) {
       log(`skip #${pr.number} — couldn't read its reviews from gh (failed/malformed); will retry next sweep`)
       skipStatusPr(cfg, status, pr, 'skipped', "couldn't read reviews from gh; will retry next sweep")
@@ -1041,8 +1052,6 @@ function main(): void {
       skipStatusPr(cfg, status, pr, 'skipped', 'recently failed; retry window has not elapsed')
       continue
     }
-    setCommitStatus(cfg, commitStatuses, pr, 'pending', 'queued for stupify review')
-
     // Past the cheap dedup skip — this PR is a real candidate. Enforce MAX_PRS here, not on the
     // iterated list, and defer the rest to the next sweep.
     if (handled >= cfg.maxPrs) {
