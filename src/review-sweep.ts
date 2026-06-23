@@ -1085,6 +1085,7 @@ function main(): void {
       setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
       setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
       setCommitStatus(cfg, commitStatuses, pr, 'error', 'codex plan is rate-limited; retrying later')
+      deferQueuedStatusPrs(cfg, status, queue, i + 1, 'codex plan is rate-limited; deferred to next sweep')
       recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // throttle this head too so the next sweep doesn't immediately re-hit the wall
       break
     }
