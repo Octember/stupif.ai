@@ -816,12 +816,12 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
       log(`  #${pr.number} fixed-signal but no open threads — staying silent`)
       return 'clean'
     }
-    if (!postNote(cfg, pr, FIXED_NOTE)) {
-      log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
-      return null
-    }
     if (!resolveThreads(openThreadIds)) {
       log(`  couldn't resolve #${pr.number} thread(s) (gh down?) — will retry next sweep`)
+      return null
+    }
+    if (!postNote(cfg, pr, FIXED_NOTE)) {
+      log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
       return null
     }
     log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
