@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, commitStatusDescription, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -245,6 +245,13 @@ test('commitStatusDescription fits GitHub commit status limits', () => {
   const long = 'x'.repeat(200)
   expect(commitStatusDescription(long)).toHaveLength(140)
   expect(commitStatusDescription(long).endsWith('...')).toBe(true)
+})
+
+test('commitStatusForSweepResult keeps unresolved prior findings red', () => {
+  expect(commitStatusForSweepResult('open')).toEqual({ state: 'failure', description: 'prior stupify findings are still open' })
+  expect(commitStatusForSweepResult(123)).toEqual({ state: 'failure', description: 'stupify found issues; see review' })
+  expect(commitStatusForSweepResult('fixed')).toEqual({ state: 'success', description: 'prior stupify findings resolved' })
+  expect(commitStatusForSweepResult('clean')).toEqual({ state: 'success', description: 'stupify review complete; no new issues' })
 })
 
 test('only the tail changes — per-PR content is present and correct there', () => {

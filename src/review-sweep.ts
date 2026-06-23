@@ -770,13 +770,22 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
   return { kind: 'review', text: stripSignoff(review), tokens } // strip any sign-off the model slipped in (spec says none)
 }
 
+type SweepReviewResult = number | 'limit' | 'clean' | 'fixed' | 'open' | null
+
+export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 'open'): { state: CommitStatusState; description: string } {
+  if (typeof result === 'number') return { state: 'failure', description: 'stupify found issues; see review' }
+  if (result === 'open') return { state: 'failure', description: 'prior stupify findings are still open' }
+  if (result === 'fixed') return { state: 'success', description: 'prior stupify findings resolved' }
+  return { state: 'success', description: 'stupify review complete; no new issues' }
+}
+
 /** Run one SWEEP review and act on it: post findings as an inline-threaded COMMENT review, RESOLVE stupify's open
  *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, or stay
- *  SILENT. Returns tokens on a posted review, 'noop' on a clean/quiet outcome, 'limit' on exhaustion, or null on a
- *  failure the caller throttles. The only ✅ that posts is honest: LGTM on a never-flagged clean PR. "Nothing new
- *  while findings still stand" stays silent (those threads remain open); a fix resolves the threads and posts a
- *  short visible note. */
-function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstReview: boolean, openThreadIds: string[], dismissed: string[]): number | 'limit' | 'noop' | null {
+ *  SILENT. Returns tokens on a posted review, 'clean' on a clean/quiet outcome, 'open' when prior findings remain
+ *  unresolved, 'fixed' when it resolved prior findings, 'limit' on exhaustion, or null on a failure the caller
+ *  throttles. The only ✅ that posts is honest: LGTM on a never-flagged clean PR. "Nothing new while findings still
+ *  stand" stays silent (those threads remain open); a fix resolves the threads and posts a short visible note. */
+function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstReview: boolean, openThreadIds: string[], dismissed: string[]): SweepReviewResult {
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
   const r = runReview(cfg, pr, priorThread, diff, dismissed)
   if (r.kind === 'limit' || r.kind === 'fail') {
@@ -788,21 +797,21 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
     // prior review (findings still open, or a prior LGTM), a clean head just stays silent.
     if (!firstReview) {
       log(`  #${pr.number} nothing new — staying silent`)
-      return 'noop'
+      return openThreadIds.length > 0 ? 'open' : 'clean'
     }
     if (!postNote(cfg, pr, 'LGTM ✅')) {
       log(`  couldn't post #${pr.number} LGTM (gh down?) — will retry next sweep`)
       return null
     }
     log(`  #${pr.number} clean first pass — posted LGTM ✅`)
-    return 'noop'
+    return 'clean'
   }
   // Prior findings resolved → post a visible fixed note and resolve the open threads. Gated on there
   // actually being open stupify threads, so a stray fixed-signal can't do anything.
   if (r.kind === 'fixed') {
     if (openThreadIds.length === 0) {
       log(`  #${pr.number} fixed-signal but no open threads — staying silent`)
-      return 'noop'
+      return 'clean'
     }
     if (!postNote(cfg, pr, FIXED_NOTE)) {
       log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
@@ -810,7 +819,7 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
     }
     resolveThreads(openThreadIds)
     log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
-    return 'noop'
+    return 'fixed'
   }
   // A real review: split into per-line findings and post them as inline, resolvable threads.
   const { opener, findings } = parseFindings(r.text)
@@ -1071,15 +1080,19 @@ function main(): void {
     // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
     recordReviewedHead(reviewedPath(cfg), reviewedLocal, String(pr.number), pr.headRefOid)
     bumpDailyCounter(dailyPath(cfg), daily)
-    if (used !== 'noop') {
+    if (typeof used === 'number') {
       reviewed += 1
       tokens += used
       setStatusPr(cfg, status, pr, 'posted', `posted review (${used} tokens)`, lines)
-      setCommitStatus(cfg, commitStatuses, pr, 'failure', 'stupify found issues; see review')
+    } else if (used === 'open') {
+      setStatusPr(cfg, status, pr, 'skipped', 'prior findings still open; no new review posted', lines)
+    } else if (used === 'fixed') {
+      setStatusPr(cfg, status, pr, 'clean', 'prior findings resolved', lines)
     } else {
       setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
-      setCommitStatus(cfg, commitStatuses, pr, 'success', 'stupify review complete; no new issues')
     }
+    const finalStatus = commitStatusForSweepResult(used)
+    setCommitStatus(cfg, commitStatuses, pr, finalStatus.state, finalStatus.description)
     status.totals.reviewed = reviewed
     status.totals.tokens = tokens
   }
