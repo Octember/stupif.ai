@@ -40,10 +40,13 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
 1. **Refresh** a dedicated checkout (`$STUPIFY_HOME/repo`) to `origin/<DEFAULT_BRANCH>` (default `main`) via
    `fetch && checkout && reset --hard`.
    This checkout is *hard-pinned* and never a working tree you care about, because we destructively reset it.
-2. **List** open PRs via `gh pr list --json`. In `SCOPE=auto` (the default) it keeps all non-draft PRs under
-   `DIFF_LINE_CAP`, with `REVIEW_LABEL` as a force-include override for oversized ones; `SCOPE=label` flips to
-   opt-in (only labelled PRs). Bot and draft authors are skipped in *either* scope (`gh`'s `is_bot` flag). The
-   JSON is fully validated at the boundary (`isPr`), so a malformed shape skips cleanly instead of throwing mid-loop.
+2. **List** open PRs via `gh pr list --json` (with an explicit high `--limit` — gh's default of 30, newest-first,
+   silently drops older PRs off the sweep's radar on a busy repo). In `SCOPE=auto` (the default) it keeps all
+   non-draft PRs under `DIFF_LINE_CAP`, with `REVIEW_LABEL` as a force-include override for oversized ones;
+   `SCOPE=label` flips to opt-in (only labelled PRs). Bot and draft authors are skipped in *either* scope (`gh`'s
+   `is_bot` flag) — unless the PR carries `REVIEW_LABEL`, which force-includes a bot-authored PR you deliberately
+   opted in. The JSON is fully validated at the boundary (`isPr`), so a malformed shape skips cleanly instead of
+   throwing mid-loop.
 3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
    `<!-- stupify:<headSHA> -->` for the *current* head. A new push moves the SHA, the marker no longer matches, and
    it re-reviews. **One review per head.** (Failures aren't posted, see *Safety*, so there's no fail marker;
@@ -83,8 +86,10 @@ real fix for "don't spam me" is **memory**, not delay:
   one-time **"nice, all fixed ✅"**, gated on there having actually been open findings, so it can't repeat or fire
   on a never-flagged PR), or `STUPIFY_NO_NEW_ISSUES` otherwise (clean, or prior items still open). On that second
   token the runner posts a one-time **`LGTM ✅`** if it's a clean PR stupify has never flagged (so "reviewed and
-  good" is visible, not indistinguishable from "not run yet"), and stays silent on every other clean head. Every
-  ✅ it posts is honest: a first-pass LGTM has no open findings to belie it, and "all fixed" means actually fixed.
+  good" is visible, not indistinguishable from "not run yet"), a one-line **`still ✅`** on a clean head with
+  nothing outstanding (so every reviewed head carries a marker-bearing verdict — pure silence made the newest
+  push look unreviewed to per-head merge gates), and stays silent only while its own findings remain open. Every
+  ✅ it posts is honest: it only fires when no stupify finding is open, and "all fixed" means actually fixed.
 
 The GitHub thread **is** the memory store. It survives restarts, and it already contains the author's replies
 (a separate state file wouldn't). With memory, a mid-burst re-review *sees its prior reviews and converges*
