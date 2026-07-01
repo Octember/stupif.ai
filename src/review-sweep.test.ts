@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -144,6 +144,15 @@ test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothi
   expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
   expect(prompts[0]).toContain('nice, all fixed ✅')
+})
+
+// The convergence note is a CONTRACT: per-head consumers (merge gates, the bunion factory's `wait` tool) key on a
+// stupify review that (a) carries the `<!-- stupify:<headSHA> -->` marker for the CURRENT head and (b) contains ✅
+// for approval. postNote appends the marker; the note itself must carry the ✅ — a reworded note without it would
+// read as an objection, and a silent convergence reads as "never reviewed this head" (the STUPIFY_FLAKED bug).
+test('the still-clean convergence note carries the ✅ approval mark per-head gates key on', () => {
+  expect(STILL_NOTE).toContain('✅')
+  expect(prompts[0]).toContain(STILL_NOTE) // codex is told the runner posts it, so it keeps emitting the bare token
 })
 
 // Re-raise on silent dismissal: a finding the author RESOLVED without replying isn't a reasoned decline. We detect
